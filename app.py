@@ -174,14 +174,15 @@ def get_project():
 
 @app.route('/api/quote/', methods=['GET'])
 def findClose():
-	text = request.args.get('text')
-	project = text = request.args.get('projectid')
-	embedding = LLM()
-	vector = embedding.getEmbedding(text,'azure')
-	query = "SELECT id,content,1-(content_v <=> %s::vector) as similarity from records where role=\'user\' AND content_v IS NOT NULL and project=%s ORDER by similarity DESC LIMIT 10"
-	params = (vector,project)
-	ouptut = g.db.query_database_all(query,params)
-	return jsonify(ouptut)
+	# text = request.args.get('text')
+	# project = text = request.args.get('projectid')
+	# embedding = LLM()
+	# vector = embedding.getEmbedding(text,'azure')
+	# query = "SELECT id,content,1-(content_v <=> %s::vector) as similarity from records where role=\'user\' AND content_v IS NOT NULL and project=%s ORDER by similarity DESC LIMIT 10"
+	# params = (vector,project)
+	# ouptut = g.db.query_database_all(query,params)
+	# return jsonify(ouptut)
+	return jsonify([])
 
 @app.route('/api/heartbeat/', methods=['GET'])
 def heartbeat_launch():
@@ -231,13 +232,14 @@ def debug_endpoint():
 
 @app.route('/api/alike/interview', methods=['GET'])
 def findCloseInterview():
-	text = request.args.get('text')
-	embedding = LLM()
-	vector = embedding.getEmbedding(text,'azure')
-	query = "SELECT respondent,project,title,summary,sentiment,1-(summary_v <=> %s::vector) as similarity from interviews ORDER by similarity DESC LIMIT 10"
-	params = (vector,)
-	ouptut = g.db.query_database_all(query,params)
-	return jsonify(ouptut)
+	# text = request.args.get('text')
+	# embedding = LLM()
+	# vector = embedding.getEmbedding(text,'azure')
+	# query = "SELECT respondent,project,title,summary,sentiment,1-(summary_v <=> %s::vector) as similarity from interviews ORDER by similarity DESC LIMIT 10"
+	# params = (vector,)
+	# ouptut = g.db.query_database_all(query,params)
+	# return jsonify(ouptut)
+	return jsonify([])
 
 @app.route('/api/topic', methods=['GET'])
 def findTopicChanges():

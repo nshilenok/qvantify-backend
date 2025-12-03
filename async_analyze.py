@@ -103,7 +103,7 @@ def analyze_interview(uuid,project):
             facts=function_args.get("insights")
         )
 		print(function_response)
-		exctractSentencesFromSummary(uuid,project,function_args.get("insights"))
+		# exctractSentencesFromSummary(uuid,project,function_args.get("insights"))
 
 
 def label_insight(insight_id,insight):
@@ -157,64 +157,62 @@ def update_interviews_with_analysis():
 	for interview in interviews:
 		analyze_interview(interview[0],interview[1])
 
-def updateInterviewsWithEmbeddings():
-	query = "SELECT summary,id from interviews where summary_v IS NULL"
-	query_params = ("null",)
-	interviews = db.query_database_all(query,query_params)
-	embedding = LLM(db)
-	for interview in interviews:
-		vector = embedding.getEmbedding(interview[0],'azure')
-		query = "UPDATE interviews set summary_v=%s where id=%s"
-		params = (vector,interview[1])
-		db.query_database_insert(query, params)
-		print(f"Vector inserted for interview {interview[1]}")
-
-def updateRecordsWithEmbeddings():
-	if threading.current_thread().name == "t1":
-		query = "SELECT content,id from records where mod(id,2)=0 AND role=\'user\' AND content_v IS NULL"
-	else:
-		query = "SELECT content,id from records where mod(id,2)>0 AND role=\'user\' AND content_v IS NULL"
-
-	query_params = ("null",)
-	interviews = db.query_database_all(query,query_params)
-	embedding = LLM(db)
-	for interview in interviews:
-		vector = embedding.getEmbedding(interview[0],'azure')
-		query = "UPDATE records set content_v=%s where id=%s"
-		params = (vector,interview[1])
-		db.query_database_insert(query, params)
-		print(f"Vector inserted for {interview[1]}")
-
-def executeThreadedFunction(target):
-	t1 = threading.Thread(target=target, name='t1')
-	t2 = threading.Thread(target=target, name='t2')
-
-	t1.start()
-	t2.start()
-	t1.join()
-	t2.join()
-
-def exctractSentencesFromSummary(respondent,project,summary):
-	#split_text = tokenize.sent_tokenize(summary)
-	split_text = summary.split("; ")
-	embedding = LLM(db)
-	for sentence in split_text:
-		vector = embedding.getEmbedding(sentence,'azure')
-		query = "INSERT into interviews_sentences (respondent,project,sentence,sentence_v) VALUES (%s,%s,%s,%s)"
-		params = (respondent,project,sentence,vector)
-		db.query_database_insert(query,params)
-
-def retroUpdateInterviewSentences():
-	query = "select respondent,id,project,summary from interviews where summary IS NOT NULL"
-	params = ()
-	interviews = db.query_database_all(query,params)
-	for interview in interviews:
-		exctractSentencesFromSummary(interview[0],interview[1],interview[2],interview[3])
-
-def embed_records():
-	executeThreadedFunction(updateRecordsWithEmbeddings)
-
-
+# def updateInterviewsWithEmbeddings():
+# 	query = "SELECT summary,id from interviews where summary_v IS NULL"
+# 	query_params = ("null",)
+# 	interviews = db.query_database_all(query,query_params)
+# 	embedding = LLM(db)
+# 	for interview in interviews:
+# 		vector = embedding.getEmbedding(interview[0],'azure')
+# 		query = "UPDATE interviews set summary_v=%s where id=%s"
+# 		params = (vector,interview[1])
+# 		db.query_database_insert(query, params)
+# 		print(f"Vector inserted for interview {interview[1]}")
+#
+# def updateRecordsWithEmbeddings():
+# 	if threading.current_thread().name == "t1":
+# 		query = "SELECT content,id from records where mod(id,2)=0 AND role=\'user\' AND content_v IS NULL"
+# 	else:
+# 		query = "SELECT content,id from records where mod(id,2)>0 AND role=\'user\' AND content_v IS NULL"
+#
+# 	query_params = ("null",)
+# 	interviews = db.query_database_all(query,query_params)
+# 	embedding = LLM(db)
+# 	for interview in interviews:
+# 		vector = embedding.getEmbedding(interview[0],'azure')
+# 		query = "UPDATE records set content_v=%s where id=%s"
+# 		params = (vector,interview[1])
+# 		db.query_database_insert(query, params)
+# 		print(f"Vector inserted for {interview[1]}")
+#
+# def executeThreadedFunction(target):
+# 	t1 = threading.Thread(target=target, name='t1')
+# 	t2 = threading.Thread(target=target, name='t2')
+#
+# 	t1.start()
+# 	t2.start()
+# 	t1.join()
+# 	t2.join()
+#
+# def exctractSentencesFromSummary(respondent,project,summary):
+# 	#split_text = tokenize.sent_tokenize(summary)
+# 	split_text = summary.split("; ")
+# 	embedding = LLM(db)
+# 	for sentence in split_text:
+# 		vector = embedding.getEmbedding(sentence,'azure')
+# 		query = "INSERT into interviews_sentences (respondent,project,sentence,sentence_v) VALUES (%s,%s,%s,%s)"
+# 		params = (respondent,project,sentence,vector)
+# 		db.query_database_insert(query,params)
+#
+# def retroUpdateInterviewSentences():
+# 	query = "select respondent,id,project,summary from interviews where summary IS NOT NULL"
+# 	params = ()
+# 	interviews = db.query_database_all(query,params)
+# 	for interview in interviews:
+# 		exctractSentencesFromSummary(interview[0],interview[1],interview[2],interview[3])
+#
+# def embed_records():
+# 	executeThreadedFunction(updateRecordsWithEmbeddings)
 
 if __name__ == '__main__':
 	#globals()[sys.argv[1]]()

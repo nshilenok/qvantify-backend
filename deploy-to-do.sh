@@ -40,7 +40,7 @@ cd /srv/qvantify-backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
-pip install flask gunicorn psycopg2-binary openai pgvector
+pip install flask gunicorn psycopg2-binary openai
 
 # Create systemd service
 cat > /etc/systemd/system/qvantify-backend.service << 'SERVICE'

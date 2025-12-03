@@ -1,6 +1,6 @@
 import psycopg2
 from psycopg2 import pool
-from pgvector.psycopg2 import register_vector
+# from pgvector.psycopg2 import register_vector
 from flask import g
 from datetime import datetime, timezone
 import logging
@@ -13,7 +13,7 @@ class DB:
 			self.postgreSQL_pool = psycopg2.pool.ThreadedConnectionPool(1, 8, **config)
 			self.conn = None
 			self.conn = self.postgreSQL_pool.getconn()
-			register_vector(self.conn)
+			# register_vector(self.conn)
 		except (Exception, psycopg2.DatabaseError) as error:
 			print("Error while connecting to PostgreSQL", error)
 
