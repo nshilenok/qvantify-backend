@@ -34,15 +34,15 @@ This document outlines the current scope, features, and technical specifications
 -   **Chat Interface:** Interaction with users/respondents.
 -   **Respondent Management:** storing respondent data and consent.
 -   **Analysis:** Sentiment analysis and summarization of interviews.
--   **Vector Search:** Uses `pgvector` for semantic search over conversation records.
+-   **Semantic Search (removed):** Vector/embedding-based search was previously present in code, but is now removed/disabled to keep the backend and schema minimal.
 
 ## Technical Stack
 
 ### Backend
 -   **Python/Flask:** Core application server (`server.py`, `app.py`).
 -   **PostgreSQL (Supabase):** Primary database.
-    -   Extensions: `vector`, `pgcrypto`, `pg_stat_statements`.
--   **Celery/Async:** Asynchronous task processing for analysis (`async_analyze.py`).
+    -   Extensions: `pgcrypto`, `pg_stat_statements`, `uuid-ossp` (see `database_schema.sql`).
+-   **Async analysis (optional):** `async_analyze.py` can generate interview summaries/labels; embedding/vector storage has been removed/disabled.
 
 ### Database Schema
 See `database_schema.sql` for the full DDL.
@@ -64,4 +64,7 @@ See `database_schema.sql` for the full DDL.
 -   **Supabase:** Database hosting.
 -   **Procfile:** Heroku/Dokku deployment configuration.
 -   **Scripts:** `deploy-to-do.sh` for deployment automation.
+
+
+
 

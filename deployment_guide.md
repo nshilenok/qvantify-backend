@@ -45,3 +45,6 @@ Once deployed:
 *   Visit the application URL.
 *   Check logs for any "Database error" or "Connection refused" messages.
 
+
+
+
