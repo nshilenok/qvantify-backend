@@ -1,70 +1,68 @@
-# Project Scope & Features
+# Project Scope & Features (Qvantify Fullstack)
 
-This document outlines the current scope, features, and technical specifications of the Qvantify Fullstack project.
+This file is the **source of truth** for what we expect to work and how we test it end-to-end after changes.
 
-## Core Features
+## Product Features
 
-### 1. Shipment Tracking
--   **Multi-Carrier Support:** Ability to track shipments across different carriers using various methods.
--   **Tracking Methods:**
-    -   **API/Standard:** Standard tracking via integrations.
-    -   **Portal Automation (CUA):** Custom User Agent navigation for portals requiring login.
-    -   **Stagehand:** AI-driven DOM extraction for complex tracking pages.
--   **Shipment Management:**
-    -   CRUD operations for shipments.
-    -   Status updates and timeline tracking.
-    -   Automatic background checking (configurable intervals).
-    -   Failure handling (retry logic, auto-disable after consecutive failures).
+### 1. Interview / Conversation Flow (Web)
+- **Frontend**: Pre-built static web bundle served from `static/` by `server.py`.
+- **Project config load**: `GET /api/project/` returns project UI config (labels, theme, consent copy, etc.).
+- **Respondent creation**: `POST /api/respondent/` creates a respondent row and returns a UUID.
+- **Interview initialization**: `GET /api/interview/` returns the first assistant response (or continues flow).
+- **Ongoing conversation**: `POST /api/reply/` stores user + assistant messages into `records`.
+- **Topic switching**: `topic.py` advances topics using `topics` + `topics_log`.
 
-### 2. Intelligent Monitoring
--   **Flagging System:** Automatic detection of issues:
-    -   Delays
-    -   No updates for 24+ hours
-    -   Missing signatures
-    -   Customs holds
-    -   ETA updates
--   **Alerts:** Configurable thresholds for user notifications.
+### 2. Health & Bring-up Diagnostics
+- **Health endpoint**: `GET /api/health` returns:
+  - `ok`: server is up
+  - `db_configured`: whether DB env vars are present (no connection attempt)
+  - `db_config_error`: why DB config is missing/invalid (if any)
+- **Debug endpoint**: `GET /api/debug/?key=...` reports whether AI keys are set (never exposes values).
+- **Frontend without DB**: Static routes (`/`, `/static/...`) must work even if DB is down.
 
-### 3. Simulation & Testing
--   **Simulator Engine:** Built-in shipment simulator to test tracking logic without real carrier APIs.
--   **Scenarios:** Configurable simulation scenarios (`sim_scenarios`) defining event sequences.
--   **Portal Simulation:** Mock portals (`sim_portal_settings`) for testing CUA/Stagehand extraction.
-
-### 4. Conversation & Interview Interface
--   **Chat Interface:** Interaction with users/respondents.
--   **Respondent Management:** storing respondent data and consent.
--   **Analysis:** Sentiment analysis and summarization of interviews.
--   **Semantic Search (removed):** Vector/embedding-based search was previously present in code, but is now removed/disabled to keep the backend and schema minimal.
-
-## Technical Stack
+## Technical Architecture
 
 ### Backend
--   **Python/Flask:** Core application server (`server.py`, `app.py`).
--   **PostgreSQL (Supabase):** Primary database.
-    -   Extensions: `pgcrypto`, `pg_stat_statements`, `uuid-ossp` (see `database_schema.sql`).
--   **Async analysis (optional):** `async_analyze.py` can generate interview summaries/labels; embedding/vector storage has been removed/disabled.
+- **Flask app**: `server.py` serves both frontend + API.
+- **DB**: `database.py` (psycopg2) with env-only config in `credentials.py` (loads `env.local`/`.env` via `python-dotenv`).
 
-### Database Schema
-See `database_schema.sql` for the full DDL.
+### Database (Supabase Postgres)
+- **Schema source**: `database_schema.sql`
+- **Core tables for interview flow**:
+  - `projects`, `respondents`, `records`, `topics`, `topics_log`, `usage_stats`
 
-#### Key Tables
--   `shipments`: Central table for shipment data.
--   `tracking_attempts`: Log of all tracking executions.
--   `timeline_events`: History of shipment status changes.
--   `flags`: Issues identified during tracking.
--   `users`: User accounts and settings.
--   `sim_*`: Tables related to the simulation engine.
--   `records` & `respondents`: Tables for the interview/chat module.
+## Environment Configuration
 
-### Frontend
--   **React:** (Implied from `static/` structure and standard practices).
--   **Static Files:** Served from `static/` directory.
+### Local env file
+- Use `env.local` (not committed). Template: `env.example`.
 
-## Deployment
--   **Supabase:** Database hosting.
--   **Procfile:** Heroku/Dokku deployment configuration.
--   **Scripts:** `deploy-to-do.sh` for deployment automation.
+### DB Connectivity Notes (Supabase IPv6 vs IPv4)
+- Supabase **direct DB host** `db.<project_ref>.supabase.co` resolves to **IPv6** by default.
+- If your runtime/network is **IPv6-incompatible**, you must use:
+  - **Supavisor / pooler (session mode)** connection string (IPv4-compatible), or
+  - **Dedicated IPv4 add-on** (paid) for direct connections.
 
+## Test Checklist (Local)
 
+### A. Server boots + frontend serves
 
+```bash
+cd "/Users/nikitashilenok/Documents/vibecoding projects/qvantify-fullstack"
+source .venv/bin/activate
+PORT=5055 python server.py
+```
 
+- Expect:
+  - `GET http://127.0.0.1:5055/` → `200`
+  - `GET http://127.0.0.1:5055/api/health` → `200`
+
+### B. DB-required endpoints behave correctly
+- If DB is not configured or unreachable, DB-required endpoints should return `503 Database unavailable` (not crash).
+
+### C. Interview flow (requires DB + AI keys)
+- Prereqs:
+  - DB schema present
+  - Project row + topics seeded for a `projectId`
+  - `OPENAI_API_KEY` set
+- Test flow:
+  - Create respondent → initialize interview → send a reply → verify `records` rows are created

@@ -1,10 +1,7 @@
--- Enable necessary extensions
--- CREATE EXTENSION IF NOT EXISTS "vector"; -- Removed as requested
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-CREATE EXTENSION IF NOT EXISTS "pg_stat_statements";
-CREATE EXTENSION IF NOT EXISTS "pg_graphql";
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "supabase_vault";
+-- NOTE (Supabase):
+-- Supabase manages many extensions for you. Creating extensions via migrations can fail with permission errors.
+-- If you need an extension, enable it in the Supabase Dashboard (Database → Extensions).
+-- The schema below assumes `pgcrypto` + `uuid-ossp` are enabled (both are available on Supabase).
 
 -- Create Enum Types
 CREATE TYPE shipment_status AS ENUM (
@@ -245,7 +242,8 @@ CREATE TABLE IF NOT EXISTS projects (
     temperature FLOAT,
     max_tokens INTEGER,
     top_p FLOAT,
-    api TEXT
+    api TEXT,
+    default_prompt TEXT
 );
 
 CREATE TABLE IF NOT EXISTS topics (
@@ -255,7 +253,8 @@ CREATE TABLE IF NOT EXISTS topics (
     lenght INTEGER, -- Note: Typo in code 'lenght'
     sequence INTEGER,
     topic_type TEXT,
-    expiration_strategy TEXT
+    expiration_strategy TEXT,
+    defined_answers JSONB
 );
 
 CREATE TABLE IF NOT EXISTS topics_log (

@@ -75,13 +75,12 @@ For a step-by-step redeploy checklist (Railway + Supabase), see `deployment_guid
 ## Local Run
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-export DB_HOST="..."
-export DB_NAME="postgres"
-export DB_USER="postgres"
-export DB_PASSWORD="..."
-export DB_PORT="5432"
-export OPENAI_API_KEY="..."
+
+# Create env.local from env.example and fill secrets locally (never commit)
+# Then run:
 python server.py
 ```
 

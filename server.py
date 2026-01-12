@@ -31,6 +31,22 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 psycopg2.extras.register_uuid()
 
+# API endpoints that must not require a DB connection
+_PUBLIC_API_PATHS = {
+    "/api/health",
+    "/api/heartbeat/",
+    "/api/debug/",
+}
+
+
+def _is_api_request() -> bool:
+    return request.path.startswith("/api/")
+
+
+def _requires_db() -> bool:
+    return _is_api_request() and request.path not in _PUBLIC_API_PATHS
+
+
 # Import all your existing functions from app.py
 def check_if_user_exists():
     query = "SELECT id,project FROM respondents WHERE id=%s"
@@ -65,12 +81,33 @@ def answerFirstQuestion(answer,ChatGpt,topics):
 
 @app.before_request
 def get_db():
-    db = getattr(g, 'db', None)
-    if db is None:
-        g.db = DB(credentials.db_config)
+    # Only initialize DB for API requests that actually require it.
+    if not _requires_db():
+        return
+
+    if getattr(g, "db", None) is not None:
+        return
+
+    try:
+        g.db = DB(credentials.get_db_config())
+        g.db_error = None
+    except Exception as e:
+        g.db = None
+        # Don't leak secrets; keep message generic.
+        g.db_error = str(e)
+
+
+@app.before_request
+def ensure_db_for_api():
+    if not _requires_db():
+        return
+    if getattr(g, "db", None) is None:
+        return jsonify(error="Database unavailable", details=getattr(g, "db_error", None)), 503
 
 @app.before_request
 def topirHandlerInstance():
+    if not _requires_db():
+        return
     g.projectId = request.headers.get('projectId')
     g.uuid = request.headers.get('uuid')  # Frontend sends uuid header
     logger.debug(f'UUID received: "{g.uuid}", type: {type(g.uuid)}')
@@ -83,6 +120,8 @@ def topirHandlerInstance():
 
 @app.before_request
 def responseCounter():
+    if not _requires_db():
+        return
     if hasattr(g, 'th') and g.uuid and g.uuid.strip() != '':
         topics_log = g.th.getTopicsLog()
         if topics_log:	
@@ -100,6 +139,8 @@ def responseCounter():
 
 @app.before_request
 def setglobalvars():
+    if not _requires_db():
+        return
     if hasattr(g, 'th') and g.uuid and g.uuid.strip() != '':
         logger.debug('===baseTopic ID (beforere request):===: %s', g.baseTopic)
         g.topic = g.th.switchTopic()
@@ -107,6 +148,8 @@ def setglobalvars():
 
 @app.after_request
 def updateCounter(response):
+    if not _requires_db():
+        return response
     if hasattr(g, 'th') and g.uuid and g.uuid.strip() != '':
         g.th.updateResponseCounter()
     return response
@@ -122,10 +165,24 @@ def close_connection(exception):
 @app.route('/<path:path>')
 def serve_frontend(path=''):
     if path.startswith('api/'):
-        return  # Let API routes handle this
+        return jsonify(error="Not found"), 404
     if path and os.path.exists(os.path.join(app.static_folder, path)):
         return send_from_directory(app.static_folder, path)
     return send_from_directory(app.static_folder, 'index.html')
+
+# Health endpoint (no DB required)
+@app.route('/api/health', methods=['GET'])
+def health():
+    try:
+        # Check config is present without opening a connection
+        credentials.get_db_config()
+        db_configured = True
+        db_config_error = None
+    except Exception as e:
+        db_configured = False
+        db_config_error = str(e)
+
+    return jsonify(ok=True, db_required=_requires_db(), db_configured=db_configured, db_config_error=db_config_error), 200
 
 # Backend API routes (with /api prefix)
 @app.route('/api/respondent/', methods=['POST'])

@@ -1,7 +1,20 @@
+"""
+Optional helper script for listening to Supabase Realtime events.
+
+Not used by the backend app. This file intentionally does NOT ship with any keys.
+Configure via env vars if you want to run it manually.
+"""
+
+import os
+
 from realtime.connection import Socket
 
-SUPABASE_ID = "lwwyepvurqddbcbggdvm"
-API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx3d3llcHZ1cnFkZGJjYmdnZHZtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTY4ODA3Mzk5NSwiZXhwIjoyMDAzNjQ5OTk1fQ.pl8437JL73Lsk1a9UdY6sug25UvXKfum5-6iGZGBTf8"
+
+def _required_env(name: str) -> str:
+	value = os.environ.get(name)
+	if not value or not value.strip():
+		raise RuntimeError(f"Missing required env var: {name}")
+	return value.strip()
 
 
 def callback1(payload):
@@ -11,7 +24,12 @@ def callback1(payload):
 		print("Callback 1: ", status)
 
 if __name__ == "__main__":
-    URL = f"wss://{SUPABASE_ID}.supabase.co/realtime/v1/websocket?apikey={API_KEY}&vsn=1.0.0"
+    # Example:
+    #   export SUPABASE_PROJECT_REF="xuvugcsyyircdjyqsram"
+    #   export SUPABASE_API_KEY="sb_publishable_..."  (or anon/service role if appropriate)
+    supabase_ref = _required_env("SUPABASE_PROJECT_REF")
+    api_key = _required_env("SUPABASE_API_KEY")
+    URL = f"wss://{supabase_ref}.supabase.co/realtime/v1/websocket?apikey={api_key}&vsn=1.0.0"
     s = Socket(URL)
     s.connect()
 

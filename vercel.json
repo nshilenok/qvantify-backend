@@ -1,0 +1,19 @@
+{
+  "builds": [
+    { "src": "api/**/*.js", "use": "@vercel/node" },
+    { "src": "static/**", "use": "@vercel/static" }
+  ],
+  "routes": [
+    { "src": "^/api/(.*?)/?$", "dest": "/api/$1.js" },
+
+    { "src": "^/favicon\\.ico$", "dest": "/static/favicon.ico" },
+    { "src": "^/favicon-16\\.png$", "dest": "/static/favicon-16.png" },
+    { "src": "^/favicon-32\\.png$", "dest": "/static/favicon-32.png" },
+    { "src": "^/asset-manifest\\.json$", "dest": "/static/asset-manifest.json" },
+
+    { "src": "^/static/(.*)$", "dest": "/static/static/$1" },
+
+    { "src": "^/(.*)$", "dest": "/static/index.html" }
+  ]
+}
+

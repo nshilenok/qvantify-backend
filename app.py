@@ -64,7 +64,7 @@ app = Flask(__name__)
 def get_db():
     db = getattr(g, 'db', None)
     if db is None:
-       	g.db = DB(credentials.db_config)
+       	g.db = DB(credentials.get_db_config())
 
 
 @app.before_request

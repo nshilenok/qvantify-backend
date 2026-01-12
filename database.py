@@ -15,7 +15,8 @@ class DB:
 			self.conn = self.postgreSQL_pool.getconn()
 			# register_vector(self.conn)
 		except (Exception, psycopg2.DatabaseError) as error:
-			print("Error while connecting to PostgreSQL", error)
+			logger.exception("Error while connecting to PostgreSQL")
+			raise
 
 	def query_database_one(self, query, parameters):
 		conn = self.conn
