@@ -9,6 +9,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application
 COPY . .
 
-# Railway provides PORT; default is handled in start.py for local runs.
-CMD ["python", "start.py"]
+# Force start.py to run even if Railway has a "Start Command" override configured.
+# In Docker, overriding the command replaces CMD but not ENTRYPOINT.
+ENTRYPOINT ["python", "start.py"]
 

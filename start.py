@@ -11,6 +11,8 @@ def main() -> None:
     if not port.isdigit():
         raise SystemExit(f"Invalid PORT: {port!r}. Expected a numeric string.")
 
+    print(f"[start.py] Starting gunicorn on 0.0.0.0:{port}", flush=True)
+
     subprocess.run(
         [
             "python",
