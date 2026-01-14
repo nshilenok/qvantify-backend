@@ -2,7 +2,7 @@ import credentials
 import openai
 from openai import AzureOpenAI
 from openai import OpenAI
-from flask import g
+from flask import g, has_request_context
 import os
 import logging
 from typing import Generator, Optional, Tuple, List, Dict, Any
@@ -76,7 +76,11 @@ class LLM():
 
 
 	def getResponseOpenAI(self,messages,tools=None):
-		config = self.config
+		config = dict(self.config)
+		# OpenAI gpt-5.* models require max_completion_tokens instead of max_tokens.
+		if str(config.get("model", "")).startswith("gpt-5"):
+			if "max_tokens" in config:
+				config["max_completion_tokens"] = config.pop("max_tokens")
 		os.environ["OPENAI_API_KEY"] = self.key
 		client = OpenAI() 
 		if tools:
@@ -96,6 +100,10 @@ class LLM():
 		- ("done", None) at end
 		"""
 		config = dict(self.config)
+		# OpenAI gpt-5.* models require max_completion_tokens instead of max_tokens.
+		if str(config.get("model", "")).startswith("gpt-5"):
+			if "max_tokens" in config:
+				config["max_completion_tokens"] = config.pop("max_tokens")
 		os.environ["OPENAI_API_KEY"] = self.key
 		client = OpenAI()
 		try:
@@ -123,7 +131,7 @@ class LLM():
 			client.close()
 
 	def getResponse(self,messages,tools=None):
-		logger.info('USER %s SENDING THIS TO GPT: %s', g.uuid, messages)
+		logger.info('USER %s SENDING THIS TO GPT: %s', getattr(g, "uuid", None), messages)
 		try:
 			if self.api == "openai":
 				return self.getResponseOpenAI(messages,tools)
@@ -151,9 +159,36 @@ class LLM():
 		completion_tokens = response.usage.completion_tokens
 		model = self.config['model']
 		api = self.api
-		query = "INSERT INTO usage_stats (prompt_tokens, completion_tokens, user_id, project, topic, api, model) values (%s, %s, %s, %s, %s, %s, %s)"
-		params = (prompt_tokens, completion_tokens, g.uuid, g.projectId, g.baseTopic, api, model)
-		self.DB.query_database_insert(query, params)
+		if has_request_context():
+			user_id = getattr(g, "uuid", None)
+			project_id = getattr(g, "projectId", None) or self.project
+			topic = getattr(g, "baseTopic", None)
+			purpose = getattr(g, "llm_purpose", "chat")
+			service = getattr(g, "llm_service", "core")
+		else:
+			user_id = None
+			project_id = self.project
+			topic = None
+			purpose = "analysis"
+			service = "batch"
+
+		query = "INSERT INTO usage_stats (prompt_tokens, completion_tokens, user_id, project, topic, api, model, purpose, service) values (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
+		params = (
+			prompt_tokens,
+			completion_tokens,
+			user_id,
+			project_id,
+			topic,
+			api,
+			model,
+			purpose,
+			service,
+		)
+		try:
+			self.DB.query_database_insert(query, params)
+		except Exception:
+			# Usage tracking must never break primary functionality.
+			logger.exception("Failed to record usage_stats")
 
 
 
