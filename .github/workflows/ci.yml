@@ -1,0 +1,58 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  fe-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install node deps
+        run: npm install --no-audit --no-fund
+
+      - name: Install Playwright Chromium
+        run: npx --yes playwright install chromium
+
+      - name: Run FE e2e (mocked API)
+        run: npm run test:e2e
+
+  api-e2e:
+    # Only runs when secrets are provided in the repo (OPENAI + DB).
+    if: ${{ secrets.OPENAI_API_KEY != '' && secrets.DATABASE_URL != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install python deps
+        run: pip install -r requirements.txt
+
+      - name: Start server
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DB_SSLMODE: require
+          PORT: "5055"
+        run: |
+          nohup python server.py > server.log 2>&1 &
+          sleep 2
+
+      - name: Run API e2e tests
+        env:
+          QVANTIFY_BASE_URL: http://127.0.0.1:5055
+          QVANTIFY_PROJECT_ID: sample_game_funnel_2026_01_14
+          QVANTIFY_EXTERNAL_ID: sample@user.com
+        run: pytest
+

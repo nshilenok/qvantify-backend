@@ -138,6 +138,7 @@ class conversation():
 			promptType = self.topic_instance.getTopicType(g.topic)
 			chatGPT = LLM()
 
+			system_prompt = self.retrieveTopic() + '\n \n' + self.getDefaultPrompt()
 			
 			if getattr(g, 'topicIsChanging', None) is not None:
 

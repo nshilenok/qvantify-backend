@@ -4,6 +4,12 @@
   "type": "module",
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.1"
+  },
+  "scripts": {
+    "test:e2e": "playwright test"
   }
 }
 

@@ -5,6 +5,7 @@ from openai import OpenAI
 from flask import g
 import os
 import logging
+from typing import Generator, Optional, Tuple, List, Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -33,13 +34,13 @@ class LLM():
 		query_params = (self.project,)
 		response = self.DB.query_database_one(query,query_params)
 		default_values = {
-		'model': 'gpt-4',
+		'model': 'gpt-5.2',
 		'temperature': 1,
 		'max_tokens': 256,
 		'top_p': 1
 		}
 		analysis_values = {
-		'model': 'gpt-4',
+		'model': 'gpt-5.2',
 		'temperature': 1,
 		'max_tokens': 512,
 		'top_p': 1
@@ -86,6 +87,40 @@ class LLM():
 		self.saveUsage(response)
 		client.close()
 		return response
+
+	def streamResponseOpenAI(self, messages, tools=None) -> Generator[Tuple[str, Any], None, None]:
+		"""
+		Stream OpenAI chat.completions and yield:
+		- ("delta", str) for content token deltas
+		- ("tool_call", dict) for tool call deltas (best-effort passthrough)
+		- ("done", None) at end
+		"""
+		config = dict(self.config)
+		os.environ["OPENAI_API_KEY"] = self.key
+		client = OpenAI()
+		try:
+			if tools:
+				stream = client.chat.completions.create(**config, messages=messages, tools=tools, stream=True)
+			else:
+				stream = client.chat.completions.create(**config, messages=messages, stream=True)
+			for chunk in stream:
+				if not getattr(chunk, "choices", None):
+					continue
+				choice = chunk.choices[0]
+				delta = getattr(choice, "delta", None)
+				if delta is None:
+					continue
+				content = getattr(delta, "content", None)
+				if content:
+					yield ("delta", content)
+				tool_calls = getattr(delta, "tool_calls", None)
+				if tool_calls:
+					# tool_calls is a list of deltas; forward raw dict-ish representation
+					for tc in tool_calls:
+						yield ("tool_call", getattr(tc, "model_dump", lambda: tc)())
+			yield ("done", None)
+		finally:
+			client.close()
 
 	def getResponse(self,messages,tools=None):
 		logger.info('USER %s SENDING THIS TO GPT: %s', g.uuid, messages)

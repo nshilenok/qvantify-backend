@@ -9,7 +9,11 @@ This file is the **source of truth** for what we expect to work and how we test 
 - **Project config load**: `GET /api/project/` returns project UI config (labels, theme, consent copy, etc.).
 - **Respondent creation**: `POST /api/respondent/` creates a respondent row and returns a UUID.
 - **Interview initialization**: `GET /api/interview/` returns the first assistant response (or continues flow).
-- **Ongoing conversation**: `POST /api/reply/` stores user + assistant messages into `records`.
+- **Ongoing conversation**:
+  - `POST /api/reply/` (JSON) stores user + assistant messages into `records` and returns `{response,status,answers}`.
+  - `POST /api/reply/` (streaming SSE over fetch) when client sends `Accept: text/event-stream` or JSON `{stream:true}`:
+    - streams `{"type":"delta","delta":"..."}` events
+    - ends with `{"type":"final","response":"...","status":"open|closed","answers":[...]}`.
 - **Topic switching**: `topic.py` advances topics using `topics` + `topics_log`.
 
 ### 2. Health & Bring-up Diagnostics
@@ -18,7 +22,26 @@ This file is the **source of truth** for what we expect to work and how we test 
   - `db_configured`: whether DB env vars are present (no connection attempt)
   - `db_config_error`: why DB config is missing/invalid (if any)
 - **Debug endpoint**: `GET /api/debug/?key=...` reports whether AI keys are set (never exposes values).
+  - Also reports `openai_key_valid` via a tiny request (no key exposure).
 - **Frontend without DB**: Static routes (`/`, `/static/...`) must work even if DB is down.
+
+### 3. Sample Project (Seeded in DB)
+- **Project ID**: `sample_game_funnel_2026_01_14`
+- **Entry URL**: `/?interview=sample_game_funnel_2026_01_14&external_id=sample@user.com`
+- **Topics**:
+  - `single_question` × 6 (start + 5 sample questions)
+  - `auto` (final): asks missing follow-ups and then calls the tool to switch/end when appropriate
+- **Success message**: thanks the user and confirms session recording + support follow-up + agreed complement.
+
+### 4. Regression Test Matrix (API + FE)
+- **API (pytest)**:
+  - `/api/project/`, `/api/respondent/`, `/api/interview/`, `/api/reply/` (JSON) happy path
+  - `/api/reply/` streaming path: receives multiple deltas and a final event
+  - Wrong/missing `interview` id behavior
+- **FE (Playwright)**:
+  - Desktop + mobile viewports
+  - Full journey: enter via URL with `external_id`, chat across topic types, end on Success screen
+  - Alternative scenarios: refresh mid-session, restart session, “existing” behavior as defined (new respondent if only external_id repeats)
 
 ## Technical Architecture
 

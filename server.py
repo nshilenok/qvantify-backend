@@ -1,10 +1,11 @@
 import os
-from flask import Flask, send_from_directory, request, jsonify, g
+from flask import Flask, send_from_directory, request, jsonify, g, Response, stream_with_context
 from flask_cors import CORS
 import logging
 
 # Import all your existing backend functionality
 import openai
+from openai import OpenAI
 import psycopg2
 import psycopg2.extras
 from datetime import datetime, timezone, timedelta
@@ -15,6 +16,7 @@ import credentials
 from database import DB
 from topic import topicHandler
 from conversationInterface import conversation
+import autoTopic
 import platform
 
 if platform.system() == 'Linux':
@@ -190,11 +192,15 @@ def create_respondent():
     project = request.headers.get('projectId')
     external_id = request.headers.get('externalId')
     check_if_project_exists()
-    json = request.get_json()
+    json = request.get_json() or {}
     now = datetime.now(timezone.utc)
     generated_uuid = uuid.uuid4()
+    consent_raw = json.get('consent')
+    # Frontend may send consent as boolean, string, or even empty string (skip-welcome path).
+    # Store a boolean in DB; for non-boolean values assume consent was granted by continuing.
+    consent_val = consent_raw if isinstance(consent_raw, bool) else True
     query = "INSERT INTO respondents (id,created_at,project,email,consent,external_id) VALUES (%s,%s,%s,%s,%s,%s)"
-    query_params = (generated_uuid,now,project,json['email'],json['consent'],external_id)
+    query_params = (generated_uuid,now,project,json.get('email'),consent_val,external_id)
     g.db.query_database_insert(query,query_params)
     return jsonify(uuid=generated_uuid, projectId=project)
 
@@ -222,18 +228,101 @@ def get_project():
 def gpt_response():
     try:
         check_if_user_exists()
-        json = request.get_json()
-        user_response = json['message']
+        payload = request.get_json() or {}
+        user_response = payload.get('message')
+        if not isinstance(user_response, str) or not user_response.strip():
+            return jsonify(error="Missing JSON field: message"), 400
+
+        # Enable streaming when requested by client
+        wants_stream = bool(payload.get("stream")) or ("text/event-stream" in (request.headers.get("Accept") or ""))
         
         logger.debug('Processing reply for user: %s, project: %s', g.uuid, g.projectId)
         logger.debug('baseTopic: %s, topic: %s', getattr(g, 'baseTopic', None), getattr(g, 'topic', None))
         
         chat = conversation(g.th)
-        response = chat.provideResponse(user_response)
-        status = chat.retrieveTopicStatus()
-        answers = chat.retrieveDefinedAnswers()
-        
-        return jsonify(response=response, status=status, answers=answers)
+
+        if not wants_stream:
+            response = chat.provideResponse(user_response)
+            status = chat.retrieveTopicStatus()
+            answers = chat.retrieveDefinedAnswers()
+            return jsonify(response=response, status=status, answers=answers)
+
+        # Streaming response (SSE over fetch POST)
+        def sse(data: str) -> str:
+            return f"data: {data}\n\n"
+
+        def generate():
+            prompt_type = g.th.getTopicType(g.topic)
+            if prompt_type not in ("prompt", "auto"):
+                # For single_question etc, we just return the next assistant message as a single event.
+                response_text = chat.provideResponse(user_response)
+                yield sse(json.dumps({"type": "final", "response": response_text, "status": chat.retrieveTopicStatus(), "answers": chat.retrieveDefinedAnswers()}))
+                return
+
+            # Store user message once (matching conversationInterface behavior for prompt/auto)
+            g.db.store_message("user", user_response)
+
+            history = chat.retrieveConverasationHistory()
+            system_prompt = chat.retrieveTopic() + "\n \n" + chat.getDefaultPrompt()
+
+            # Mirror existing logic: if topic is changing, append+store system prompt
+            if getattr(g, 'topicIsChanging', None) is not None:
+                history.append({"role": "system", "content": system_prompt})
+                chat.DB.store_message("system", system_prompt)
+
+            llm = LLM()
+            tools = autoTopic.function if prompt_type == "auto" else None
+
+            full = ""
+            tool_call_names = []
+            for kind, val in llm.streamResponseOpenAI(history, tools=tools):
+                if kind == "delta":
+                    full += val
+                    yield sse(json.dumps({"type": "delta", "delta": val}))
+                elif kind == "tool_call":
+                    # We only need function.name to decide whether to switch topic.
+                    try:
+                        fn = (val.get("function") or {}).get("name")
+                        if fn:
+                            tool_call_names.append(fn)
+                    except Exception:
+                        pass
+
+            # Store assistant message
+            chat.DB.store_message("assistant", full)
+
+            # Auto topic: if model asked to switch topic, do it and emit the next prompt as final
+            if prompt_type == "auto" and tool_call_names:
+                # Build a minimal response-like object compatible with autoTopic.switchTopic()
+                class _Fn:  # noqa: N801
+                    def __init__(self, name): self.name = name
+                class _ToolCall:  # noqa: N801
+                    def __init__(self, name): self.function = _Fn(name)
+                class _Msg:  # noqa: N801
+                    def __init__(self, tool_calls): self.tool_calls = tool_calls
+                class _Choice:  # noqa: N801
+                    def __init__(self, msg): self.message = msg
+                class _Resp:  # noqa: N801
+                    def __init__(self, choices): self.choices = choices
+
+                fake = _Resp([_Choice(_Msg([_ToolCall(tool_call_names[0])]))])
+                switched = autoTopic.switchTopic(fake)
+                if switched:
+                    # Provide initial response for the next topic
+                    next_text = chat.provideInitialResponse()
+                    yield sse(json.dumps({"type": "final", "response": next_text, "status": chat.retrieveTopicStatus(), "answers": chat.retrieveDefinedAnswers()}))
+                    return
+
+            yield sse(json.dumps({"type": "final", "response": full, "status": chat.retrieveTopicStatus(), "answers": chat.retrieveDefinedAnswers()}))
+
+        return Response(
+            stream_with_context(generate()),
+            mimetype="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "X-Accel-Buffering": "no",
+            },
+        )
     except Exception as e:
         logger.exception('Error in gpt_response: %s', str(e))
         return jsonify(error=str(e)), 500
@@ -284,8 +373,24 @@ def debug_info():
     key = request.args.get('key')
     if key == '3yTgJUQnPjs4L':
         import os
+        # Validate OpenAI key (tiny request, no secrets returned)
+        openai_valid = False
+        try:
+            if os.environ.get("OPENAI_API_KEY"):
+                client = OpenAI()
+                _ = client.chat.completions.create(
+                    model="gpt-5.2",
+                    messages=[{"role": "user", "content": "ping"}],
+                    max_tokens=1,
+                )
+                client.close()
+                openai_valid = True
+        except Exception:
+            openai_valid = False
+
         return jsonify({
             'openai_key_set': bool(os.environ.get('OPENAI_API_KEY')),
+            'openai_key_valid': openai_valid,
             'azure_key_set': bool(os.environ.get('AZURE_OPENAI_KEY')),
             'panda_key_set': bool(os.environ.get('OPENAI_PANDA_KEY')),
             'db_config': 'configured'

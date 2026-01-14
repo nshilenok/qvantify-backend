@@ -1,10 +1,13 @@
 {
-  "builds": [
-    { "src": "api/**/*.js", "use": "@vercel/node" },
-    { "src": "static/**", "use": "@vercel/static" }
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "builds": [{ "src": "static/**", "use": "@vercel/static" }],
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://web-production-1f4a3.up.railway.app/api/:path*"
+    }
   ],
   "routes": [
-    { "src": "^/api/(.*?)/?$", "dest": "/api/$1.js" },
 
     { "src": "^/favicon\\.ico$", "dest": "/static/favicon.ico" },
     { "src": "^/favicon-16\\.png$", "dest": "/static/favicon-16.png" },
