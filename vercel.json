@@ -11,6 +11,9 @@
     { "source": "/favicon-32.png", "destination": "/static/favicon-32.png" },
     { "source": "/asset-manifest.json", "destination": "/static/asset-manifest.json" },
     { "source": "/static/:path*", "destination": "/static/static/:path*" },
+    { "source": "/results/assets/:path*", "destination": "/static/results/assets/:path*" },
+    { "source": "/results/:path*", "destination": "/static/results/index.html" },
+    { "source": "/", "destination": "/static/index.html" },
     { "source": "/:path*", "destination": "/static/index.html" }
   ]
 }
