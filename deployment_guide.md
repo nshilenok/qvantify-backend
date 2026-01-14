@@ -12,7 +12,9 @@ This guide lists everything you need to redeploy the project to Railway (or any 
 
 | Variable | Description | Example / Note |
 | :--- | :--- | :--- |
-| `DB_HOST` | Database host from Supabase | `db.xyz.supabase.co` |
+| `DATABASE_URL` | Preferred Supabase connection string | **Use Supavisor/pooler** if IPv6 is an issue |
+| `DB_SSLMODE` | SSL mode for Postgres | `require` |
+| `DB_HOST` | Database host from Supabase | `db.xyz.supabase.co` (optional if `DATABASE_URL` set) |
 | `DB_NAME` | Database name | `postgres` |
 | `DB_USER` | Database user | `postgres` |
 | `DB_PASSWORD` | Database password | *Your DB password* |
@@ -20,16 +22,18 @@ This guide lists everything you need to redeploy the project to Railway (or any 
 | `OPENAI_API_KEY` | OpenAI API Key | `sk-...` |
 | `AZURE_OPENAI_KEY` | Azure OpenAI Key | *If using Azure* |
 | `OPENAI_PANDA_KEY` | Panda Project Key | *If applicable* |
-| `PORT` | Port for the app to run on | `5000` (Provided by Railway automatically) |
+| `PORT` | Port for the app to run on | **Provided by Railway automatically** (do not set manually) |
 
 ## 3. Deployment Steps (Railway)
 
 1.  **New Project:** Create a new project in Railway.
 2.  **Connect Repo:** Connect your GitHub repository.
 3.  **Variables:** Go to the "Variables" tab and add all the variables listed above.
-4.  **Build & Deploy:** Railway should automatically detect the `Procfile` and `Pipfile`/`requirements.txt` and build the application.
-    *   **Build Command:** (None usually needed for Python, but if needed: `pip install -r requirements.txt` or `pipenv install`)
-    *   **Start Command:** `gunicorn server:app --bind 0.0.0.0:$PORT` (This is already in `Procfile`)
+4.  **Build & Deploy:** Railway uses the `Dockerfile` in this repo.
+    *   **Build Command:** Not required (Dockerfile installs deps).
+    *   **Start Command:** **Leave empty** (Dockerfile uses `ENTRYPOINT ["python", "start.py"]`).
+        - If you *must* set it, use: `python start.py`
+        - **Do not** set `gunicorn ... $PORT` (it will fail when `$PORT` isn’t expanded).
 
 ## 4. Database Restoration
 
@@ -44,6 +48,17 @@ Once deployed:
 *   Check `scope.md` to ensure all features are accounted for.
 *   Visit the application URL.
 *   Check logs for any "Database error" or "Connection refused" messages.
+
+## 6. Railway CLI (Project Token)
+
+If you have a **Railway project token**, you can use the CLI without logging in:
+
+```bash
+export RAILWAY_TOKEN=xxxx
+railway status --json
+railway logs --service "qvantify backend" --environment production --lines 50 --json
+railway variables --service <service_id> --environment <env_id> --kv
+```
 
 
 

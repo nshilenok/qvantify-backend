@@ -23,7 +23,7 @@ Notes:
                               ▼
                        ┌─────────────────┐
                        │   OpenAI API    │
-                       │   (GPT-4)      │
+                       │   (gpt-5.2)     │
                        └─────────────────┘
 ```
 
@@ -49,26 +49,32 @@ Status markers above reflect intended behavior, not a live guarantee.
 
 ## Environment Variables
 
-Required:
-- `DB_HOST`
-- `DB_NAME` (default: `postgres`)
-- `DB_USER`
-- `DB_PASSWORD`
-- `DB_PORT` (default: `5432`)
-- `OPENAI_API_KEY` (if using OpenAI chat completions)
+Required (core app):
+- **Database**: set either `DATABASE_URL` **or** `DB_HOST` + `DB_PASSWORD` (and optionally `DB_NAME`/`DB_USER`/`DB_PORT`). See `env.example`.
+- **AI**: `OPENAI_API_KEY` (only if you want the LLM features enabled).
+
+Required (Results Portal share links):
+- `SECRET_KEY` (signed cookie sessions)
+- `SHARE_LINK_ENC_KEY` (Fernet key for encrypting share link token + password)
 
 Optional (only if you use Azure chat / embeddings elsewhere):
 - `AZURE_OPENAI_KEY`
 - `OPENAI_PANDA_KEY`
+
+Optional:
+- `ADMIN_LOCAL_KEY` (enables local-only admin endpoints + Results Portal admin UI)
+- `INTERNAL_API_KEY` (enables `/api/debug` + `/api/heartbeat` internal endpoints)
+- `NEW_RELIC_LICENSE_KEY` (New Relic; keep out of repo)
 
 Provided by Railway:
 - `PORT`
 
 ## Deployment
 
-This repo includes a `Procfile`:
+This repo includes a `Procfile` + `start.py`:
 
-- `web: gunicorn server:app --bind 0.0.0.0:$PORT`
+- `web: python start.py` (handles Railway `$PORT` safely)
+- Dockerfile uses `ENTRYPOINT ["python", "start.py"]`
 
 For a step-by-step redeploy checklist (Railway + Supabase), see `deployment_guide.md`.
 
@@ -84,11 +90,36 @@ pip install -r requirements.txt
 python server.py
 ```
 
+## Results Portal (Admin + Share Links)
+
+This repo now includes a separate Results Portal SPA served under `/results/*`.
+
+### Frontend (Vite build)
+- **Source**: `results-ui/`
+- **Build output**: `static/results/`
+
+Build locally:
+
+```bash
+cd results-ui
+npm install
+npm run build
+```
+
+### Backend routes
+- **Admin UI**: `/results/admin` (local-only)
+- **Customer UI**: `/results/share/<token>` (password-gated)
+
+See `env.example` for required vars:
+- `ADMIN_LOCAL_KEY` (enables local admin)
+- `SECRET_KEY` (required for share-link login sessions)
+- `SHARE_LINK_ENC_KEY` (required to encrypt/decrypt share link token + password)
+
 ## 📊 Monitoring
 
 ### Health Checks
-- **Heartbeat:** `/api/heartbeat/?key=3yTgJUQnPjs4L`
-- **Debug Info:** `/api/debug/?key=3yTgJUQnPjs4L`
+- **Heartbeat:** `/api/heartbeat/?key=...` (requires `INTERNAL_API_KEY`)
+- **Debug Info:** `/api/debug/?key=...` (requires `INTERNAL_API_KEY`)
 
 ### Logs
 - Available in Railway dashboard
@@ -136,11 +167,11 @@ qvantify-fullstack/
 
 ### Debug Commands
 ```bash
-# Check environment variables
-curl "https://web-production-1f4a3.up.railway.app/api/debug/?key=3yTgJUQnPjs4L"
+# Check environment variables (internal-only)
+curl "https://<your-host>/api/debug/?key=$INTERNAL_API_KEY"
 
-# Check server health
-curl "https://web-production-1f4a3.up.railway.app/api/heartbeat/?key=3yTgJUQnPjs4L"
+# Check server health (internal-only)
+curl "https://<your-host>/api/heartbeat/?key=$INTERNAL_API_KEY"
 ```
 
 ## Notes
