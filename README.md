@@ -78,6 +78,17 @@ This repo includes a `Procfile` + `start.py`:
 
 For a step-by-step redeploy checklist (Railway + Supabase), see `deployment_guide.md`.
 
+## Quick Health Check
+
+Run a single script to validate API health + DB connectivity:
+
+```bash
+QVANTIFY_BASE_URL=https://app.qvantify.com \
+QVANTIFY_RAILWAY_URL=https://qvantify.up.railway.app \
+QVANTIFY_PROJECT_ID=sample_game_funnel_2026_01_14 \
+./scripts/health-check.sh
+```
+
 ## Local Run
 
 ```bash

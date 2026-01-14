@@ -49,6 +49,17 @@ Once deployed:
 *   Visit the application URL.
 *   Check logs for any "Database error" or "Connection refused" messages.
 
+### Quick Health Check Script
+
+Use the recovery script to confirm API + DB:
+
+```bash
+QVANTIFY_BASE_URL=https://app.qvantify.com \
+QVANTIFY_RAILWAY_URL=https://qvantify.up.railway.app \
+QVANTIFY_PROJECT_ID=sample_game_funnel_2026_01_14 \
+./scripts/health-check.sh
+```
+
 ## 6. Railway CLI (Project Token)
 
 If you have a **Railway project token**, you can use the CLI without logging in:

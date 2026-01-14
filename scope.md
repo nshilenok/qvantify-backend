@@ -14,7 +14,7 @@ This file is the **source of truth** for what we expect to work and how we test 
   - `POST /api/reply/` (streaming SSE over fetch) when client sends `Accept: text/event-stream` or JSON `{stream:true}`:
     - streams `{"type":"delta","delta":"..."}` events
     - ends with `{"type":"final","response":"...","status":"open|closed","answers":[...]}`.
-- **OpenAI gpt-5.***: `max_tokens` is translated to `max_completion_tokens` to avoid 400 errors.
+- **OpenAI gpt-5.***: responses use a fixed default token budget in code (mapped to `max_completion_tokens`).
 - **Topic switching**: `topic.py` advances topics using `topics` + `topics_log`.
 
 ### 2. Health & Bring-up Diagnostics
@@ -178,8 +178,12 @@ This file is the **source of truth** for what we expect to work and how we test 
 - Set `DATABASE_URL` and `DB_SSLMODE=require` in Railway variables.
 
 ### C. OpenAI 400 errors
-- Symptom: `/api/reply/` returns 500 and logs show `Unsupported parameter: 'max_tokens'`.
+- Symptom: `/api/reply/` returns 500 with an unsupported token-parameter error (verify OpenAI config and token budget mapping).
 - Fix: ensure `max_completion_tokens` is used for `gpt-5.*` models (already handled in `llmInterface.py`).
+
+### D. One-command recovery check
+- Script: `./scripts/health-check.sh`
+- Uses: `QVANTIFY_BASE_URL`, `QVANTIFY_RAILWAY_URL`, `QVANTIFY_PROJECT_ID`
 
 ## Test Checklist (Local)
 
