@@ -3,6 +3,10 @@
   "builds": [{ "src": "static/**", "use": "@vercel/static" }],
   "rewrites": [
     {
+      "source": "/api/:path*/",
+      "destination": "https://qvantify.up.railway.app/api/:path*/"
+    },
+    {
       "source": "/api/:path*",
       "destination": "https://qvantify.up.railway.app/api/:path*"
     },
