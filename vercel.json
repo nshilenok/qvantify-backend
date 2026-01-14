@@ -4,19 +4,14 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://web-production-1f4a3.up.railway.app/api/:path*"
-    }
-  ],
-  "routes": [
-
-    { "src": "^/favicon\\.ico$", "dest": "/static/favicon.ico" },
-    { "src": "^/favicon-16\\.png$", "dest": "/static/favicon-16.png" },
-    { "src": "^/favicon-32\\.png$", "dest": "/static/favicon-32.png" },
-    { "src": "^/asset-manifest\\.json$", "dest": "/static/asset-manifest.json" },
-
-    { "src": "^/static/(.*)$", "dest": "/static/static/$1" },
-
-    { "src": "^/(.*)$", "dest": "/static/index.html" }
+      "destination": "https://qvantify.up.railway.app/api/:path*"
+    },
+    { "source": "/favicon.ico", "destination": "/static/favicon.ico" },
+    { "source": "/favicon-16.png", "destination": "/static/favicon-16.png" },
+    { "source": "/favicon-32.png", "destination": "/static/favicon-32.png" },
+    { "source": "/asset-manifest.json", "destination": "/static/asset-manifest.json" },
+    { "source": "/static/:path*", "destination": "/static/static/:path*" },
+    { "source": "/:path*", "destination": "/static/index.html" }
   ]
 }
 
