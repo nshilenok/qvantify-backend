@@ -1,0 +1,21 @@
+#!/usr/bin/env python3
+import os
+import subprocess
+import sys
+
+
+def main() -> None:
+    port = os.environ.get("PORT", "5000").strip()
+    if not port.isdigit():
+        port = "5000"
+
+    # Replace any literal "$PORT" occurrences passed by a non-shell start command.
+    args = [arg.replace("$PORT", port) for arg in sys.argv[1:]]
+    if not args:
+        args = ["server:app", "--bind", f"0.0.0.0:{port}"]
+
+    subprocess.run(["python", "-m", "gunicorn", *args], check=True)
+
+
+if __name__ == "__main__":
+    main()
