@@ -1,0 +1,13 @@
+.git
+.venv
+__pycache__
+*.pyc
+.DS_Store
+.env
+.env.*
+env.local
+.vercel
+node_modules
+test-results
+static/static/js/*.map
+
