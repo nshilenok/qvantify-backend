@@ -11,10 +11,12 @@ import {
   adminListTopicLogs,
   adminCreateShareLink,
   adminRevokeShareLink,
+  adminUpdateProject,
   adminUpdateSessionAnnotation,
   adminDeleteSessions,
   type AdminTopic,
   type AdminTopicLog,
+  type AdminProjectResponse,
   type SessionListItem,
   type ShareLink,
 } from "@/lib/api";
@@ -86,11 +88,13 @@ function formatUsd(value: number): string {
 }
 
 export function AdminProjectPage() {
-  const { projectId } = useParams({ from: "/admin/projects/$projectId" });
+  const { projectId } = useParams({ from: "/projects/$projectId" });
 
   const [search, setSearch] = React.useState("");
   const [topicSearch, setTopicSearch] = React.useState("");
   const [topicLogSearch, setTopicLogSearch] = React.useState("");
+  const [activeTab, setActiveTab] = React.useState<"results" | "topics" | "settings" | "usage">("results");
+  const isResultsTab = activeTab === "results";
   const [sortKey, setSortKey] = React.useState("latest");
   const [filterRows, setFilterRows] = React.useState<FilterRow[]>([
     { id: "external_id", field: "external_id", op: "contains", value: "" },
@@ -359,6 +363,28 @@ export function AdminProjectPage() {
     },
   });
 
+  const updateProjectM = useMutation({
+    mutationFn: (patch: { voice_enabled: boolean }) => adminUpdateProject(projectId, patch),
+    onMutate: async (patch) => {
+      await queryClient.cancelQueries({ queryKey: ["admin", "project", projectId] });
+      const previous = queryClient.getQueryData<AdminProjectResponse>(["admin", "project", projectId]);
+      if (previous?.project) {
+        queryClient.setQueryData<AdminProjectResponse>(["admin", "project", projectId], {
+          project: { ...previous.project, voice_enabled: patch.voice_enabled },
+        });
+      }
+      return { previous };
+    },
+    onError: (_err, _patch, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["admin", "project", projectId], context.previous);
+      }
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["admin", "project", projectId] });
+    },
+  });
+
   const selected = detailQ.data?.session;
   const records = detailQ.data?.records || [];
   const displayRecords = records.filter((record) => (record.content ?? "").trim().length > 0);
@@ -367,20 +393,31 @@ export function AdminProjectPage() {
     id: string;
     label: string;
   }
+  interface TranscriptGroupItem {
+    type: "group";
+    id: string;
+    label: string;
+  }
   interface TranscriptMessageItem {
     type: "message";
     id: string;
     record: (typeof displayRecords)[number];
   }
-  type TranscriptItem = TranscriptTopicItem | TranscriptMessageItem;
+  type TranscriptItem = TranscriptGroupItem | TranscriptTopicItem | TranscriptMessageItem;
   const transcriptItems = React.useMemo<TranscriptItem[]>(() => {
     const items: TranscriptItem[] = [];
     const topicLabels = new Map<string, string>();
     let lastTopicKey = "";
+    let lastGroupKey = "";
     for (const record of displayRecords) {
       const topicId = String(record.topic ?? "").trim();
       const explicitLabel = String(record.topic_label ?? "").trim();
       const fallbackLabel = String(record.content ?? "").trim();
+      const groupLabel = String(record.topic_group ?? "").trim();
+      if (groupLabel && groupLabel !== lastGroupKey) {
+        items.push({ type: "group", id: `group-${record.id}`, label: groupLabel });
+        lastGroupKey = groupLabel;
+      }
       if (topicId) {
         if (explicitLabel) {
           topicLabels.set(topicId, explicitLabel);
@@ -412,6 +449,7 @@ export function AdminProjectPage() {
   }, [displaySessions, isDateSort, sortKey]);
   const flatSessions = React.useMemo(() => (isDateSort ? [] : displaySessions), [displaySessions, isDateSort]);
   const projectDetails = projectQ.data?.project;
+  const voiceEnabled = Boolean(projectDetails?.voice_enabled);
   const isSessionSelected = React.useCallback(
     (sessionId: string) =>
       selectAllMatching ? !excludedIds.has(sessionId) : selectedIds.has(sessionId),
@@ -487,6 +525,7 @@ export function AdminProjectPage() {
       { key: "skip_welcome", label: "Welcome screen", value: projectDetails.skip_welcome, type: "boolean", invert: true },
       { key: "dark_mode", label: "Dark mode", value: projectDetails.dark_mode, type: "boolean" },
       { key: "inline_consent", label: "Inline consent", value: projectDetails.inline_consent, type: "boolean" },
+      { key: "voice_enabled", label: "Voice input", value: projectDetails.voice_enabled, type: "boolean" },
       { key: "model", label: "Model", value: projectDetails.model },
       { key: "temperature", label: "Temperature", value: projectDetails.temperature },
       { key: "top_p", label: "Top p", value: projectDetails.top_p },
@@ -542,10 +581,10 @@ export function AdminProjectPage() {
       qs.set(key, value);
     });
     qs.set("format", "csv");
-    return `/api/admin/projects/${encodeURIComponent(projectId)}/export?${qs.toString()}`;
+    return `/api/projects/${encodeURIComponent(projectId)}/export?${qs.toString()}`;
   }, [projectId, sessionFilters]);
 
-  const exportAllHref = `/api/admin/projects/${encodeURIComponent(projectId)}/export?format=csv`;
+  const exportAllHref = `/api/projects/${encodeURIComponent(projectId)}/export?format=csv`;
 
   // Get the active share link (if any)
   const activeShareLink: ShareLink | null = React.useMemo(() => {
@@ -647,7 +686,11 @@ export function AdminProjectPage() {
 
   const webShareUrl = React.useMemo(() => {
     if (!sharePath) return "";
-    const base = (import.meta.env.VITE_QVANTIFY_BASE_URL || "https://app.qvantify.com").replace(/\/$/, "");
+    if (typeof window === "undefined") {
+      const base = (import.meta.env.VITE_QVANTIFY_BASE_URL || "").replace(/\/$/, "");
+      return base ? `${base}${sharePath}` : "";
+    }
+    const base = (import.meta.env.VITE_QVANTIFY_BASE_URL || window.location.origin).replace(/\/$/, "");
     return `${base}${sharePath}`;
   }, [sharePath]);
 
@@ -769,6 +812,19 @@ export function AdminProjectPage() {
     }
   };
 
+  const deriveTopicTitle = (topic: AdminTopic) => {
+    const explicit = (topic.title || "").trim();
+    if (explicit) return explicit;
+    const system = (topic.system || "").trim();
+    if (!system) return "—";
+    const themeMatch = system.match(/current theme:\s*([^\n\r]+)/i);
+    if (themeMatch && themeMatch[1]) {
+      return themeMatch[1].trim() || "—";
+    }
+    const words = system.split(/\s+/).filter(Boolean).slice(0, 2);
+    return words.length ? words.join(" ") : "—";
+  };
+
   const truncateText = (value: string, max = 120) => {
     if (!value) return "";
     return value.length > max ? `${value.slice(0, max)}…` : value;
@@ -798,6 +854,8 @@ export function AdminProjectPage() {
       const haystack = [
         topic.id,
         topic.project,
+        deriveTopicTitle(topic),
+        topic.group,
         topic.system,
         topic.topic_type,
         topic.expiration_strategy,
@@ -835,6 +893,7 @@ export function AdminProjectPage() {
   const deleteButtonLabel =
     selectedCount > 0 ? `Delete ${selectedCount} selected interviews` : "Delete selected interviews";
   const hasSessions = displaySessions.length > 0;
+
   const renderSessionRow = (s: SessionListItem) => {
     const active = s.id === selectedId;
     const title = s.persona_label || "Unnamed";
@@ -926,7 +985,7 @@ export function AdminProjectPage() {
       <div className="mb-6">
         <div className="flex items-center gap-2 text-sm mb-2">
           <Link
-            to="/admin"
+            to="/projects"
             className="flex items-center gap-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -941,7 +1000,7 @@ export function AdminProjectPage() {
         </div>
 
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
+          <div className="min-w-0">
             <h1 className="text-2xl font-semibold text-[var(--text-primary)]">
               {projectQ.data?.project?.name || "Project Results"}
             </h1>
@@ -982,129 +1041,61 @@ export function AdminProjectPage() {
               </button>
               <span className="text-[var(--text-subtle)]">external_id: {defaultExternalId}</span>
             </div>
+
+            <div className="mt-4 flex flex-wrap items-end gap-2 border-b border-[var(--border-default)]">
+              {[
+                { key: "results", label: "Results" },
+                { key: "topics", label: "Topics" },
+                { key: "usage", label: "Usage" },
+                { key: "settings", label: "Project Settings" },
+              ].map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setActiveTab(tab.key as typeof activeTab)}
+                  className={`-mb-px rounded-t-xl px-4 py-2 text-xs font-semibold transition-all-base border ${
+                    activeTab === tab.key
+                      ? "bg-[var(--bg-primary)] text-[var(--text-primary)] border-[var(--border-default)] border-b-[var(--bg-primary)] shadow-[var(--shadow-sm)]"
+                      : "bg-transparent text-[var(--text-muted)] border-transparent hover:text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => setShareModalOpen(true)}
-              className="flex items-center gap-2 rounded-full bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white shadow-[var(--shadow-lg)]"
-            >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-              </svg>
-              Share
-            </button>
-            <button
-              onClick={() => setExportModalOpen(true)}
-              className="flex items-center gap-2 rounded-full border border-[var(--border-default)] bg-white px-4 py-2 text-sm font-semibold text-[var(--text-secondary)] shadow-[var(--shadow-sm)] hover:shadow-[var(--shadow-md)]"
-            >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-              Export
-            </button>
-            <button
-              onClick={() => listQ.refetch()}
-              disabled={listQ.isFetching}
-              className="flex items-center gap-2 rounded-full border border-[var(--border-default)] bg-white px-4 py-2 text-sm font-semibold text-[var(--text-secondary)] shadow-[var(--shadow-sm)] hover:shadow-[var(--shadow-md)] disabled:opacity-50"
-            >
-              <svg className={`h-4 w-4 ${listQ.isFetching ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              Refresh
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Token Usage */}
-      <div className="mb-6 glass-card rounded-3xl p-5">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide">
-              Token usage
+          {isResultsTab && (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => setShareModalOpen(true)}
+                className="flex items-center gap-2 rounded-full bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white shadow-[var(--shadow-lg)]"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                </svg>
+                Share
+              </button>
+              <button
+                onClick={() => setExportModalOpen(true)}
+                className="flex items-center gap-2 rounded-full border border-[var(--border-default)] bg-white px-4 py-2 text-sm font-semibold text-[var(--text-secondary)] shadow-[var(--shadow-sm)] hover:shadow-[var(--shadow-md)]"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                Export
+              </button>
+              <button
+                onClick={() => listQ.refetch()}
+                disabled={listQ.isFetching}
+                className="flex items-center gap-2 rounded-full border border-[var(--border-default)] bg-white px-4 py-2 text-sm font-semibold text-[var(--text-secondary)] shadow-[var(--shadow-sm)] hover:shadow-[var(--shadow-md)] disabled:opacity-50"
+              >
+                <svg className={`h-4 w-4 ${listQ.isFetching ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Refresh
+              </button>
             </div>
-            <div className="mt-1 text-2xl font-semibold text-[var(--text-primary)]">
-              {usageQ.isLoading || usageQ.error ? "—" : formatTokenCount(totalTokens)}
-            </div>
-            <div className="text-xs text-[var(--text-muted)]">
-              {usageQ.isLoading
-                ? "Loading usage..."
-                : usageQ.error
-                ? "Usage stats unavailable"
-                : "Total tokens"}
-            </div>
-            {!usageQ.isLoading && !usageQ.error && (
-              <div className="mt-2 text-xs text-[var(--text-muted)]">
-                Est. cost:{" "}
-                <span className="font-semibold text-[var(--text-secondary)]">
-                  {formatUsd(totalUsd)}
-                </span>{" "}
-                <span className="text-[10px]">(rate {formatUsd(usdRate)} / 1k)</span>
-              </div>
-            )}
-          </div>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <div className="flex items-center gap-2 rounded-xl border border-[var(--border-default)] bg-[var(--bg-secondary)] px-3 py-2 text-xs text-[var(--text-secondary)]">
-              <span className="h-2 w-2 rounded-full bg-[var(--brand-primary)]" />
-              <span>Interviews</span>
-              <span className="font-semibold text-[var(--text-primary)]">
-                {usageQ.isLoading || usageQ.error
-                  ? "—"
-                  : `${formatTokenCount(interviewTokens)} • ${formatUsd(interviewUsd)}`}
-              </span>
-            </div>
-            <div className="flex items-center gap-2 rounded-xl border border-[var(--border-default)] bg-[var(--bg-secondary)] px-3 py-2 text-xs text-[var(--text-secondary)]">
-              <span className="h-2 w-2 rounded-full bg-emerald-500" />
-              <span>Summary</span>
-              <span className="font-semibold text-[var(--text-primary)]">
-                {usageQ.isLoading || usageQ.error
-                  ? "—"
-                  : `${formatTokenCount(summaryTokens)} • ${formatUsd(summaryUsd)}`}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-4">
-          {usageQ.isLoading && (
-            <div className="flex items-center gap-3 text-xs text-[var(--text-muted)]">
-              <div className="h-2 w-full rounded-full bg-[var(--bg-secondary)] animate-pulse" />
-              <span>Loading chart</span>
-            </div>
-          )}
-          {usageQ.error && (
-            <div className="text-xs text-red-500">Usage chart unavailable.</div>
-          )}
-          {!usageQ.isLoading && !usageQ.error && (
-            <>
-              <div className="flex h-2 w-full overflow-hidden rounded-full bg-[var(--bg-secondary)]">
-                <div
-                  className="h-full bg-[var(--brand-primary)]"
-                  style={{ width: `${interviewPct}%` }}
-                />
-                <div
-                  className="h-full bg-emerald-500"
-                  style={{ width: `${summaryPct}%` }}
-                />
-                {otherTokens > 0 && (
-                  <div
-                    className="h-full bg-[var(--border-default)]"
-                    style={{ width: `${otherPct}%` }}
-                  />
-                )}
-              </div>
-              <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-[var(--text-muted)]">
-                <span>Interviews {Math.round(interviewPct)}%</span>
-                <span>Summary {Math.round(summaryPct)}%</span>
-                {otherTokens > 0 && <span>Other {Math.round(otherPct)}%</span>}
-              </div>
-              {!hasUsage && (
-                <div className="mt-2 text-xs text-[var(--text-muted)]">
-                  No token usage recorded for this project yet.
-                </div>
-              )}
-            </>
           )}
         </div>
       </div>
@@ -1345,20 +1336,21 @@ export function AdminProjectPage() {
         </DialogContent>
       </Dialog>
 
-      <div className="mb-6 rounded-3xl glass-card p-5">
-        <div className="flex flex-col gap-4">
-          <div>
-            <div className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-2">Search</div>
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search transcripts, persona, external_id, session id, notes..."
-            />
-          </div>
-          <div>
-            <div className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide">Filters</div>
-            <div className="mt-3 grid gap-3">
-          {filterRows.map((row) => {
+      {isResultsTab && (
+        <div className="mb-6 rounded-3xl glass-card p-5">
+          <div className="flex flex-col gap-4">
+            <div>
+              <div className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-2">Search</div>
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search transcripts, persona, external_id, session id, notes..."
+              />
+            </div>
+            <div>
+              <div className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide">Filters</div>
+              <div className="mt-3 grid gap-3">
+            {filterRows.map((row) => {
             const fieldOptionsForRow = fieldOptions.filter(
               (option) => option.value === row.field || !usedFields.has(option.value)
             );
@@ -1499,25 +1491,26 @@ export function AdminProjectPage() {
                 </div>
               </div>
             );
-          })}
-            </div>
+            })}
+              </div>
 
-            <div className="pt-3">
-              <button
-                onClick={addFilterRow}
-                disabled={!canAddFilters}
-                className="rounded-full border border-[var(--border-default)] bg-white px-3 py-1 text-xs font-semibold text-[var(--text-secondary)] shadow-[var(--shadow-sm)] disabled:opacity-50"
-              >
-                + Add filter
-              </button>
+              <div className="pt-3">
+                <button
+                  onClick={addFilterRow}
+                  disabled={!canAddFilters}
+                  className="rounded-full border border-[var(--border-default)] bg-white px-3 py-1 text-xs font-semibold text-[var(--text-secondary)] shadow-[var(--shadow-sm)] disabled:opacity-50"
+                >
+                  + Add filter
+                </button>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         {/* Left Sidebar */}
-        <div className="lg:col-span-4 space-y-4">
+        <div className={isResultsTab ? "lg:col-span-4 space-y-4" : "hidden"}>
           {/* Sessions List */}
           <div className="glass-card rounded-3xl overflow-hidden">
             <div className="p-4 border-b border-[var(--border-default)]">
@@ -1607,42 +1600,11 @@ export function AdminProjectPage() {
           </div>
         </div>
 
-        {projectDetails && (
-          <div className="glass-card rounded-3xl p-4">
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-semibold text-[var(--text-primary)]">Project properties</div>
-              <span className="text-xs text-[var(--text-muted)]">{projectFields.length} fields</span>
-            </div>
-            <div className="mt-4 space-y-3 max-h-[320px] overflow-y-auto pr-1">
-              {projectFields.map((field) => {
-                if (field.type === "boolean") {
-                  const badge = formatBoolean(field.value as boolean | null | undefined, field.invert);
-                  return (
-                    <div key={field.key} className="flex items-start justify-between gap-3">
-                      <span className="text-xs text-[var(--text-muted)]">{field.label}</span>
-                      <span className={`rounded-full px-3 py-1 text-[11px] font-semibold ${badge.className}`}>
-                        {badge.label}
-                      </span>
-                    </div>
-                  );
-                }
-                return (
-                  <div key={field.key} className="flex flex-col gap-1">
-                    <span className="text-xs text-[var(--text-muted)]">{field.label}</span>
-                    <span className="text-xs text-[var(--text-secondary)] break-words">
-                      {formatValue(field.value)}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
         {/* Main Content */}
-        <div className="lg:col-span-8">
-          <div className="space-y-6">
-            <div className="glass-card rounded-3xl overflow-hidden min-h-[600px]">
+        <div className={isResultsTab ? "lg:col-span-8" : "lg:col-span-12"}>
+          <div className="space-y-4">
+            {activeTab === "results" && (
+              <div className="glass-card rounded-3xl overflow-hidden min-h-[600px]">
               {!selectedId && (
                 <div className="h-full flex items-center justify-center p-12">
                   <div className="text-center">
@@ -1833,6 +1795,15 @@ export function AdminProjectPage() {
                   <div className="flex-1 overflow-y-auto p-6 bg-[var(--bg-secondary)]">
                     <div className="space-y-4">
                       {transcriptItems.map((item) => {
+                        if (item.type === "group") {
+                          return (
+                            <div key={item.id} className="flex justify-center">
+                              <div className="rounded-full bg-[var(--brand-primary)] px-3 py-1 text-xs font-semibold text-white shadow-sm">
+                                {item.label}
+                              </div>
+                            </div>
+                          );
+                        }
                         if (item.type === "topic") {
                           return (
                             <div key={item.id} className="flex justify-center">
@@ -1897,7 +1868,10 @@ export function AdminProjectPage() {
                 </div>
               )}
             </div>
+            )}
 
+            {activeTab === "topics" && (
+              <div className="space-y-6">
             <div className="glass-card rounded-3xl p-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -1929,11 +1903,13 @@ export function AdminProjectPage() {
                   <div className="text-xs text-[var(--text-muted)]">No topics found for this project.</div>
                 )}
                 {!topicsQ.isLoading && !topicsQ.error && filteredTopics.length > 0 && (
-                  <table className="w-full min-w-[980px] text-xs">
+                  <table className="w-full min-w-[1140px] text-xs">
                     <thead>
                       <tr className="text-left text-[var(--text-muted)]">
                         <th className="px-3 py-2 font-semibold uppercase tracking-wide">ID</th>
                         <th className="px-3 py-2 font-semibold uppercase tracking-wide">Project</th>
+                        <th className="px-3 py-2 font-semibold uppercase tracking-wide">Title</th>
+                        <th className="px-3 py-2 font-semibold uppercase tracking-wide">Group</th>
                         <th className="px-3 py-2 font-semibold uppercase tracking-wide">System</th>
                         <th className="px-3 py-2 font-semibold uppercase tracking-wide">Length</th>
                         <th className="px-3 py-2 font-semibold uppercase tracking-wide">Sequence</th>
@@ -1965,6 +1941,10 @@ export function AdminProjectPage() {
                               </div>
                             </td>
                             <td className="px-3 py-2 text-[var(--text-secondary)]">{formatValue(topic.project)}</td>
+                            <td className="px-3 py-2 text-[var(--text-secondary)]">{deriveTopicTitle(topic)}</td>
+                            <td className="px-3 py-2 text-[var(--text-secondary)] whitespace-pre-wrap">
+                              {formatValue(topic.group)}
+                            </td>
                             <td className="px-3 py-2">
                               <div className="text-[var(--text-secondary)] whitespace-pre-wrap">
                                 {systemShort}
@@ -2092,6 +2072,159 @@ export function AdminProjectPage() {
                 )}
               </div>
             </div>
+              </div>
+            )}
+
+            {activeTab === "usage" && (
+              <div className="glass-card rounded-3xl p-5">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide">
+                      Token usage
+                    </div>
+                    <div className="mt-1 text-2xl font-semibold text-[var(--text-primary)]">
+                      {usageQ.isLoading || usageQ.error ? "—" : formatTokenCount(totalTokens)}
+                    </div>
+                    <div className="text-xs text-[var(--text-muted)]">
+                      {usageQ.isLoading
+                        ? "Loading usage..."
+                        : usageQ.error
+                        ? "Usage stats unavailable"
+                        : "Total tokens"}
+                    </div>
+                    {!usageQ.isLoading && !usageQ.error && (
+                      <div className="mt-2 text-xs text-[var(--text-muted)]">
+                        Est. cost:{" "}
+                        <span className="font-semibold text-[var(--text-secondary)]">
+                          {formatUsd(totalUsd)}
+                        </span>{" "}
+                        <span className="text-[10px]">(rate {formatUsd(usdRate)} / 1k)</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                    <div className="flex items-center gap-2 rounded-xl border border-[var(--border-default)] bg-[var(--bg-secondary)] px-3 py-2 text-xs text-[var(--text-secondary)]">
+                      <span className="h-2 w-2 rounded-full bg-[var(--brand-primary)]" />
+                      <span>Interviews</span>
+                      <span className="font-semibold text-[var(--text-primary)]">
+                        {usageQ.isLoading || usageQ.error
+                          ? "—"
+                          : `${formatTokenCount(interviewTokens)} • ${formatUsd(interviewUsd)}`}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 rounded-xl border border-[var(--border-default)] bg-[var(--bg-secondary)] px-3 py-2 text-xs text-[var(--text-secondary)]">
+                      <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                      <span>Summary</span>
+                      <span className="font-semibold text-[var(--text-primary)]">
+                        {usageQ.isLoading || usageQ.error
+                          ? "—"
+                          : `${formatTokenCount(summaryTokens)} • ${formatUsd(summaryUsd)}`}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  {usageQ.isLoading && (
+                    <div className="flex items-center gap-3 text-xs text-[var(--text-muted)]">
+                      <div className="h-2 w-full rounded-full bg-[var(--bg-secondary)] animate-pulse" />
+                      <span>Loading chart</span>
+                    </div>
+                  )}
+                  {usageQ.error && (
+                    <div className="text-xs text-red-500">Usage chart unavailable.</div>
+                  )}
+                  {!usageQ.isLoading && !usageQ.error && (
+                    <>
+                      <div className="flex h-2 w-full overflow-hidden rounded-full bg-[var(--bg-secondary)]">
+                        <div
+                          className="h-full bg-[var(--brand-primary)]"
+                          style={{ width: `${interviewPct}%` }}
+                        />
+                        <div
+                          className="h-full bg-emerald-500"
+                          style={{ width: `${summaryPct}%` }}
+                        />
+                        {otherTokens > 0 && (
+                          <div
+                            className="h-full bg-[var(--border-default)]"
+                            style={{ width: `${otherPct}%` }}
+                          />
+                        )}
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-[var(--text-muted)]">
+                        <span>Interviews {Math.round(interviewPct)}%</span>
+                        <span>Summary {Math.round(summaryPct)}%</span>
+                        {otherTokens > 0 && <span>Other {Math.round(otherPct)}%</span>}
+                      </div>
+                      {!hasUsage && (
+                        <div className="mt-2 text-xs text-[var(--text-muted)]">
+                          No token usage recorded for this project yet.
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {activeTab === "settings" && (
+              <div className="space-y-4">
+                <div className="glass-card rounded-3xl p-5">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <div className="text-sm font-semibold text-[var(--text-primary)]">Voice input</div>
+                      <div className="text-xs text-[var(--text-muted)]">
+                        Allow respondents to use voice transcription in the interview UI.
+                      </div>
+                    </div>
+                    <Switch
+                      checked={voiceEnabled}
+                      onCheckedChange={(checked) => updateProjectM.mutate({ voice_enabled: checked })}
+                      disabled={updateProjectM.isPending || !projectDetails}
+                    />
+                  </div>
+                  {updateProjectM.error && (
+                    <div className="mt-3 text-xs text-red-500">{(updateProjectM.error as Error).message}</div>
+                  )}
+                </div>
+
+                <div className="glass-card rounded-3xl p-5">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm font-semibold text-[var(--text-primary)]">Project properties</div>
+                    <span className="text-xs text-[var(--text-muted)]">{projectFields.length} fields</span>
+                  </div>
+                  {!projectDetails && (
+                    <div className="mt-4 text-xs text-[var(--text-muted)]">No project settings available.</div>
+                  )}
+                  {projectDetails && (
+                    <div className="mt-4 space-y-3 max-h-[420px] overflow-y-auto pr-1">
+                      {projectFields.map((field) => {
+                        if (field.type === "boolean") {
+                          const badge = formatBoolean(field.value as boolean | null | undefined, field.invert);
+                          return (
+                            <div key={field.key} className="flex items-start justify-between gap-3">
+                              <span className="text-xs text-[var(--text-muted)]">{field.label}</span>
+                              <span className={`rounded-full px-3 py-1 text-[11px] font-semibold ${badge.className}`}>
+                                {badge.label}
+                              </span>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div key={field.key} className="flex flex-col gap-1">
+                            <span className="text-xs text-[var(--text-muted)]">{field.label}</span>
+                            <span className="text-xs text-[var(--text-secondary)] break-words">
+                              {formatValue(field.value)}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

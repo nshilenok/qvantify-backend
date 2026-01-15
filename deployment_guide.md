@@ -71,6 +71,9 @@ Optional one-time setup to auto-run checks on every `git push`:
 - Keep the production project tied to `main`.
 - Mirror env vars (same keys as prod, per current policy).
   - **Warning:** using production keys in staging means staging actions can affect production data. Treat staging as read-only unless you intentionally want to modify prod.
+- Set `QVANTIFY_RAILWAY_URL` in each Vercel project:
+  - Production: `https://qvantify.up.railway.app`
+  - Staging: your Railway staging service URL (e.g. `https://qvantify-staging.up.railway.app`)
 - **Staging preview URL**: use the latest Vercel Preview deployment for the `staging` branch.
   - Vercel preview URLs change on each deployment. If you need a stable staging URL, set a Preview domain in Vercel.
 

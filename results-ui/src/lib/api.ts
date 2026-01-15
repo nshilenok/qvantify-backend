@@ -1,7 +1,18 @@
 export type ApiError = { error: string; [k: string]: unknown };
 
+const configuredBase = (import.meta.env.VITE_QVANTIFY_BASE_URL || "").replace(/\/$/, "");
+const runtimeBase = typeof window === "undefined" ? "" : window.location.origin;
+const apiBase = configuredBase || runtimeBase;
+
+function resolveApiUrl(path: string) {
+  if (/^https?:\/\//i.test(path)) return path;
+  if (!apiBase) return path;
+  if (path.startsWith("/")) return `${apiBase}${path}`;
+  return `${apiBase}/${path}`;
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetch(resolveApiUrl(path), {
     credentials: "include",
     headers: {
       "Content-Type": "application/json",
@@ -100,6 +111,7 @@ export type AdminProjectDetail = {
   skip_welcome?: boolean | null;
   dark_mode?: boolean | null;
   inline_consent?: boolean | null;
+  voice_enabled?: boolean | null;
   model?: string | null;
   temperature?: number | null;
   max_tokens?: number | null;
@@ -110,7 +122,9 @@ export type AdminProjectDetail = {
 export interface AdminTopic {
   id: string | null;
   project: string | null;
+  title?: string | null;
   system: string | null;
+  group?: string | null;
   length: number | null;
   sequence: number | null;
   topic_type: string | null;
@@ -136,6 +150,7 @@ export interface AdminTopicLogsResponse {
 }
 
 export type AdminProjectResponse = { project: AdminProjectDetail };
+export type AdminProjectUpdateResponse = { ok: true; project: { id: string; voice_enabled: boolean } };
 export type ShareLink = {
   id: string;
   label: string | null;
@@ -173,6 +188,7 @@ export type SessionDetail = {
     content: string;
     topic: string | null;
     topic_label?: string | null;
+    topic_group?: string | null;
     admin_like?: number;
     admin_note?: string | null;
   }>;
@@ -185,6 +201,13 @@ export async function adminListProjects() {
 
 export async function adminGetProject(projectId: string) {
   return apiFetch<AdminProjectResponse>(`/api/projects/${encodeURIComponent(projectId)}`);
+}
+
+export async function adminUpdateProject(projectId: string, patch: { voice_enabled: boolean }) {
+  return apiFetch<AdminProjectUpdateResponse>(`/api/projects/${encodeURIComponent(projectId)}`, {
+    method: "PUT",
+    body: JSON.stringify(patch),
+  });
 }
 
 export async function adminListTopics(projectId: string) {

@@ -1,14 +1,17 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "builds": [{ "src": "static/**", "use": "@vercel/static" }],
+  "builds": [
+    { "src": "api/[...path].cjs", "use": "@vercel/node" },
+    { "src": "static/**", "use": "@vercel/static" }
+  ],
   "rewrites": [
     {
       "source": "/api/:path*/",
-      "destination": "https://qvantify.up.railway.app/api/:path*/"
+      "destination": "/api/[...path].cjs?path=:path*/"
     },
     {
       "source": "/api/:path*",
-      "destination": "https://qvantify.up.railway.app/api/:path*"
+      "destination": "/api/[...path].cjs?path=:path*"
     },
     { "source": "/favicon.ico", "destination": "/static/favicon.ico" },
     { "source": "/favicon-16.png", "destination": "/static/favicon-16.png" },

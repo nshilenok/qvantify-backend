@@ -102,6 +102,28 @@ class LLM():
 				config["max_completion_tokens"] = config.pop("max_tokens")
 		os.environ["OPENAI_API_KEY"] = self.key
 		client = OpenAI() 
+		# region agent log
+		try:
+			import json as _json
+			from datetime import datetime as _dt
+			payload = {
+				"sessionId": "debug-session",
+				"runId": "run1",
+				"hypothesisId": "H3",
+				"location": "llmInterface.py:getResponseOpenAI",
+				"message": "OpenAI request start",
+				"data": {"model": str(config.get("model", "")), "has_tools": bool(tools)},
+				"timestamp": int(_dt.now().timestamp() * 1000),
+			}
+			with open(
+				"/Users/nikitashilenok/Documents/vibecoding projects/qvantify-fullstack/.cursor/debug.log",
+				"a",
+				encoding="utf-8",
+			) as f:
+				f.write(_json.dumps(payload) + "\n")
+		except Exception:
+			pass
+		# endregion agent log
 		if tools:
 			if tool_choice:
 				response = client.chat.completions.create(**config,messages=messages,tools=tools,tool_choice=tool_choice)
@@ -109,6 +131,28 @@ class LLM():
 				response = client.chat.completions.create(**config,messages=messages,tools=tools)
 		else:
 			response = client.chat.completions.create(**config,messages=messages)
+		# region agent log
+		try:
+			import json as _json
+			from datetime import datetime as _dt
+			payload = {
+				"sessionId": "debug-session",
+				"runId": "run1",
+				"hypothesisId": "H3",
+				"location": "llmInterface.py:getResponseOpenAI",
+				"message": "OpenAI request done",
+				"data": {"has_response": response is not None},
+				"timestamp": int(_dt.now().timestamp() * 1000),
+			}
+			with open(
+				"/Users/nikitashilenok/Documents/vibecoding projects/qvantify-fullstack/.cursor/debug.log",
+				"a",
+				encoding="utf-8",
+			) as f:
+				f.write(_json.dumps(payload) + "\n")
+		except Exception:
+			pass
+		# endregion agent log
 		logger.debug('==========================OpenAI Output===========================: %s', response)
 		self.saveUsage(response)
 		client.close()

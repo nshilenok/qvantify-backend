@@ -1,0 +1,6 @@
+---
+description: 
+globs: **/*
+alwaysApply: false
+---
+This project utilizes the following technologies:

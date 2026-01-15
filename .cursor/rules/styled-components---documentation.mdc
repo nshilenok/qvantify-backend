@@ -1,0 +1,6 @@
+---
+description: 
+globs: src/components/styled/**/*.js
+alwaysApply: false
+---
+- Follow the styled-components documentation for best practices.

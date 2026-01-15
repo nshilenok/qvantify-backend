@@ -20,6 +20,268 @@
 <script>
 (() => {
   const abortFlagKey = "qvantify_abort";
+  const __qvDebugEndpoint =
+    location.hostname === "127.0.0.1" || location.hostname === "localhost"
+      ? "http://127.0.0.1:7246/ingest/bda9a422-d00c-4e0c-a917-e7747f2e37b5"
+      : "";
+  const __qvLog = (hypothesisId, location, message, data) => {
+    try {
+      if (!__qvDebugEndpoint) return;
+      fetch(__qvDebugEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId: "debug-session",
+          runId: "run1",
+          hypothesisId,
+          location,
+          message,
+          data,
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+    } catch {
+      // ignore
+    }
+  };
+  try {
+    // Expose for other injected scripts (voice IIFE).
+    window.__qvLog = __qvLog;
+  } catch {
+    // ignore
+  }
+
+  // #region agent log
+  __qvLog("H0", "static/index.html:bootstrap", "Injected scripts bootstrap", {
+    href: location.href,
+    readyState: document.readyState,
+  });
+  // #endregion agent log
+
+  // #region agent log
+  // Fix accidentally URL-encoded query strings (?interview%3D...%26external_id%3D...)
+  try {
+    const rawSearch = location.search || "";
+    if (rawSearch.includes("%3D") && !rawSearch.includes("interview=")) {
+      const decoded = decodeURIComponent(rawSearch.startsWith("?") ? rawSearch.slice(1) : rawSearch);
+      const params = new URLSearchParams(decoded);
+      if (params.has("interview")) {
+        const next = new URL(location.href);
+        next.search = "?" + decoded;
+        history.replaceState({}, "", next.toString());
+        __qvLog("H0", "static/index.html:decodeQuery", "Decoded encoded query", {
+          decoded: decoded.slice(0, 200),
+        });
+      }
+    }
+  } catch {
+    // ignore
+  }
+  // #endregion agent log
+
+  // #region agent log
+  const __qvPatchFetchLogger = () => {
+    if (window.__qvFetchLoggerPatched) return;
+    window.__qvFetchLoggerPatched = true;
+    const originalFetch = window.fetch;
+    window.fetch = async (...args) => {
+      const request = args[0];
+      const url = typeof request === "string" ? request : request?.url || "";
+      const method =
+        (typeof request === "object" && request && request.method) || (args[1] && args[1].method) || "GET";
+      const isApi = url.includes("/api/");
+      if (isApi) {
+        __qvLog("H3", "static/index.html:fetch", "Fetch start", { method, url });
+      }
+      try {
+        const response = await originalFetch(...args);
+        if (isApi) {
+          __qvLog("H3", "static/index.html:fetch", "Fetch done", {
+            method,
+            url,
+            status: response.status,
+          });
+        }
+        return response;
+      } catch (err) {
+        if (isApi) {
+          __qvLog("H3", "static/index.html:fetch", "Fetch error", {
+            method,
+            url,
+            error: String(err || ""),
+          });
+        }
+        throw err;
+      }
+    };
+    __qvLog("H3", "static/index.html:fetch", "Fetch patched", {});
+  };
+  // #endregion agent log
+
+  // #region agent log
+  const __qvPatchXhrLogger = () => {
+    try {
+      if (window.__qvXhrLoggerPatched) return;
+      const OrigXHR = window.XMLHttpRequest;
+      if (!OrigXHR) return;
+      window.__qvXhrLoggerPatched = true;
+      const origOpen = OrigXHR.prototype.open;
+      const origSend = OrigXHR.prototype.send;
+      OrigXHR.prototype.open = function (method, url) {
+        try {
+          this.__qv = { method: String(method || ""), url: String(url || "") };
+        } catch {
+          // ignore
+        }
+        return origOpen.apply(this, arguments);
+      };
+      OrigXHR.prototype.send = function () {
+        try {
+          const meta = this.__qv || {};
+          const url = String(meta.url || "");
+          if (url.includes("/api/")) {
+            const started = Date.now();
+            this.addEventListener("loadend", () => {
+              __qvLog("H3", "static/index.html:xhr", "XHR loadend", {
+                method: meta.method,
+                url,
+                status: this.status,
+                durationMs: Date.now() - started,
+              });
+            });
+          }
+        } catch {
+          // ignore
+        }
+        return origSend.apply(this, arguments);
+      };
+      __qvLog("H3", "static/index.html:xhr", "XHR patched", {});
+    } catch {
+      // ignore
+    }
+  };
+  // #endregion agent log
+
+  // #region agent log
+  document.addEventListener("DOMContentLoaded", () => {
+    __qvPatchFetchLogger();
+    __qvPatchXhrLogger();
+  });
+  // #endregion agent log
+
+  // #region agent log
+  // Re-apply patches in case the app overwrote them after load.
+  window.addEventListener("load", () => {
+    __qvPatchFetchLogger();
+    __qvPatchXhrLogger();
+  });
+  // #endregion agent log
+
+  // #region agent log
+  // Capture JS console errors (often the only visible clue for "blank page")
+  try {
+    const _err = console.error.bind(console);
+    console.error = (...args) => {
+      try {
+        __qvLog("H4", "static/index.html:console.error", "Console error", {
+          args: args.map((v) => String(v)).slice(0, 4),
+        });
+      } catch {
+        // ignore
+      }
+      _err(...args);
+    };
+  } catch {
+    // ignore
+  }
+  // #endregion agent log
+
+  // #region agent log
+  // The compiled app often uses XHR (not fetch). Log API calls + status.
+  try {
+    const OrigXHR = window.XMLHttpRequest;
+    if (OrigXHR && !window.__qvXhrPatched) {
+      window.__qvXhrPatched = true;
+      const origOpen = OrigXHR.prototype.open;
+      const origSend = OrigXHR.prototype.send;
+      OrigXHR.prototype.open = function (method, url) {
+        try {
+          this.__qv = { method: String(method || ""), url: String(url || "") };
+        } catch {
+          // ignore
+        }
+        return origOpen.apply(this, arguments);
+      };
+      OrigXHR.prototype.send = function () {
+        try {
+          const meta = this.__qv || {};
+          const url = String(meta.url || "");
+          if (url.includes("/api/")) {
+            const started = Date.now();
+            this.addEventListener("loadend", () => {
+              __qvLog("H3", "static/index.html:xhr", "XHR loadend", {
+                method: meta.method,
+                url,
+                status: this.status,
+                durationMs: Date.now() - started,
+              });
+            });
+          }
+        } catch {
+          // ignore
+        }
+        return origSend.apply(this, arguments);
+      };
+    }
+  } catch {
+    // ignore
+  }
+  // #endregion agent log
+
+  // #region agent log
+  // Detect "blank" root: log once when root gets meaningful text.
+  try {
+    let lastLen = 0;
+    const root = document.getElementById("root");
+    if (root) {
+      const obs = new MutationObserver(() => {
+        const txt = (root.innerText || "").trim();
+        const len = txt.length;
+        if (len > 0 && lastLen === 0) {
+          __qvLog("H0", "static/index.html:root", "Root became non-empty", {
+            sample: txt.slice(0, 120),
+            len,
+          });
+        }
+        lastLen = len;
+      });
+      obs.observe(root, { childList: true, subtree: true, characterData: true });
+    }
+  } catch {
+    // ignore
+  }
+  // #endregion agent log
+
+  // #region agent log
+  window.addEventListener(
+    "error",
+    (event) => {
+      __qvLog("H4", "static/index.html:window.onerror", "Window error", {
+        message: String(event.message || ""),
+        filename: String(event.filename || ""),
+        lineno: event.lineno,
+        colno: event.colno,
+      });
+    },
+    true
+  );
+  window.addEventListener("unhandledrejection", (event) => {
+    const reason = event && event.reason ? String(event.reason && event.reason.message ? event.reason.message : event.reason) : "";
+    __qvLog("H4", "static/index.html:unhandledrejection", "Unhandled promise rejection", { reason });
+  });
+  // #endregion agent log
+
+  let projectCache = null;
 
   const readJson = (key) => {
     try {
@@ -31,16 +293,210 @@
     }
   };
 
-  const getProject = () => {
-    const stored = readJson("project_details");
-    return Array.isArray(stored) ? stored[0] : stored;
+  const setProjectCache = (payload) => {
+    if (!payload || typeof payload !== "object") return;
+    projectCache = payload;
+    try {
+      localStorage.setItem("project_details", JSON.stringify(payload));
+    } catch {
+      // ignore
+    }
   };
+
+  const getProject = () => {
+    if (projectCache) return projectCache;
+    const stored = readJson("project_details");
+    const project = Array.isArray(stored) ? stored[0] : stored;
+    if (project && typeof project === "object") {
+      projectCache = project;
+    }
+    return project;
+  };
+
+  // Throttle MutationObserver handlers to once per animation frame.
+  // This avoids observer storms that can starve the event loop.
+  const makeRafThrottled = (fn, label) => {
+    let scheduled = false;
+    let lastLog = 0;
+    let tickCount = 0;
+    return () => {
+      tickCount += 1;
+      if (scheduled) return;
+      scheduled = true;
+      requestAnimationFrame(() => {
+        scheduled = false;
+        try {
+          fn();
+        } catch {
+          // ignore
+        }
+        const now = Date.now();
+        if (now - lastLog > 1000) {
+          // #region agent log
+          const project = getProject();
+          __qvLog("H1", "static/index.html:observer", "Observer tick (throttled)", {
+            label,
+            ticks: tickCount,
+            hasProject: Boolean(project),
+            voiceEnabled: Boolean(project && project.voice_enabled),
+          });
+          // #endregion agent log
+          lastLog = now;
+          tickCount = 0;
+        }
+      });
+    };
+  };
+
+  // #region agent log
+  if (!window.__qvMicClickLogger) {
+    window.__qvMicClickLogger = true;
+    document.addEventListener(
+      "click",
+      (event) => {
+        const target = event.target;
+        const mic = document.getElementById(VOICE.ids.micButton);
+        if (!mic || !(target instanceof HTMLElement)) return;
+        if (target === mic || mic.contains(target)) {
+          __qvLog("H2", "static/index.html:micClickCapture", "Mic click captured", {
+            targetTag: target.tagName,
+          });
+        }
+      },
+      true
+    );
+  }
+  // #endregion agent log
+
+  // #region agent log
+  if (!window.__qvMicProbeInstalled) {
+    window.__qvMicProbeInstalled = true;
+    document.addEventListener(
+      "pointerdown",
+      (event) => {
+        const mic = document.getElementById(VOICE.ids.micButton);
+        if (!mic) return;
+        const rect = mic.getBoundingClientRect();
+        const x = event.clientX;
+        const y = event.clientY;
+        if (!rect || !Number.isFinite(x) || !Number.isFinite(y)) return;
+        if (x >= rect.left - 2 && x <= rect.right + 2 && y >= rect.top - 2 && y <= rect.bottom + 2) {
+          const topEl = document.elementFromPoint(x, y);
+          __qvLog("H2", "static/index.html:micPointerProbe", "Pointer down near mic", {
+            topTag: topEl && topEl.tagName ? topEl.tagName : null,
+            topId: topEl && topEl.id ? topEl.id : null,
+            micContainsTop: Boolean(topEl && mic.contains(topEl)),
+          });
+        }
+      },
+      true
+    );
+  }
+  // #endregion agent log
 
   const textValue = (value) => String(value ?? "").trim();
   const normalize = (value) => textValue(value).toLowerCase();
 
+  const progressBarId = "qv-interview-progress";
+  const progressFillId = "qv-interview-progress-fill";
+
   const getAbortCta = () => normalize(getProject()?.cta_abort || "Abort");
   const getRestartCta = () => normalize(getProject()?.cta_restart || "");
+
+  const resolveProgressColor = () => {
+    const project = getProject();
+    const color = textValue(project?.colour);
+    // #region agent log
+    __qvLog("H2", "static/index.html:resolveProgressColor", "Resolved progress color", {
+      hasProject: Boolean(project),
+      colour: color ? "[set]" : "",
+    });
+    // #endregion agent log
+    return color || "#5A45FF";
+  };
+
+  const ensureProgressBar = () => {
+    let bar = document.getElementById(progressBarId);
+    let fill = document.getElementById(progressFillId);
+    if (!bar) {
+      bar = document.createElement("div");
+      bar.id = progressBarId;
+      bar.setAttribute("aria-hidden", "true");
+      bar.style.position = "fixed";
+      bar.style.top = "env(safe-area-inset-top)";
+      bar.style.left = "0";
+      bar.style.right = "0";
+      bar.style.height = "2px";
+      bar.style.background = "rgba(0, 0, 0, 0.08)";
+      bar.style.zIndex = "9999";
+      bar.style.pointerEvents = "none";
+      bar.style.opacity = "0";
+      bar.style.transition = "opacity 200ms ease-out";
+
+      fill = document.createElement("div");
+      fill.id = progressFillId;
+      fill.style.height = "100%";
+      fill.style.width = "0%";
+      fill.style.background = resolveProgressColor();
+      fill.style.transition = "width 200ms ease-out, background 200ms ease-out";
+      bar.appendChild(fill);
+
+      document.body.appendChild(bar);
+    }
+    return { bar, fill };
+  };
+
+  const setProgress = (current, total) => {
+    const safeTotal = Number.isFinite(total) ? total : 0;
+    const safeCurrent = Number.isFinite(current) ? current : 0;
+    const { bar, fill } = ensureProgressBar();
+    if (!bar || !fill) return;
+    if (safeTotal <= 0) {
+      bar.style.opacity = "0";
+      fill.style.width = "0%";
+      return;
+    }
+    const clamped = Math.min(Math.max(safeCurrent, 0), safeTotal);
+    const percent = (clamped / safeTotal) * 100;
+    fill.style.background = resolveProgressColor();
+    fill.style.width = `${percent}%`;
+    bar.style.opacity = "1";
+  };
+
+  const extractSseFinal = (raw) => {
+    const events = raw.split("\n\n");
+    for (const event of events) {
+      const lines = event.split("\n");
+      const dataLine = lines.find((line) => line.startsWith("data: "));
+      if (!dataLine) continue;
+      try {
+        const payload = JSON.parse(dataLine.slice(6));
+        if (payload && payload.type === "final") return payload;
+      } catch {
+        // ignore
+      }
+    }
+    return null;
+  };
+
+  const applyProgressPayload = (payload) => {
+    const progress = payload?.progress;
+    if (!progress) return;
+    const current = Number(progress.current ?? 0);
+    const total = Number(progress.total ?? 0);
+    setProgress(current, total);
+  };
+
+  // NOTE: We intentionally do NOT monkey-patch fetch for progress updates.
+  // Some browser/polyfill combinations can behave poorly when a script reads a cloned response body,
+  // causing the interview to get stuck in "Loading...".
+  // A safer progress implementation should use headers or explicit events instead.
+  if (!window.__qvProgressFetchPatched) {
+    window.__qvProgressFetchPatched = true;
+    // #region agent log
+    __qvLog("H3", "static/index.html:progress", "Progress fetch patch disabled (stability)", {});
+    // #endregion agent log
+  }
 
   const findClickableParent = (el) => {
     const isInteractive = (node) => {
@@ -123,6 +579,7 @@
   // The bundled UI sometimes renders the Restart label but it ends up hidden (e.g. display:none).
   // Ensure the label is visible and set to a sensible default.
   const ensureRestartLabelVisible = () => {
+    if (document.querySelector("textarea")) return;
     const project = getProject();
     const desired = textValue(project?.cta_restart) || "Restart";
     const desiredNorm = normalize(desired);
@@ -181,6 +638,7 @@
   };
 
   const applyRestartLabelFallback = () => {
+    if (document.querySelector("textarea")) return;
     const project = getProject();
     if (!project) return;
     if (textValue(project.cta_restart)) return;
@@ -279,13 +737,20 @@
     true
   );
 
-  const observer = new MutationObserver(() => {
+  const abortObserverHandler = makeRafThrottled(() => {
     clearAbortOnNewUser();
     applyAbortMessaging();
     applyRestartLabelFallback();
     ensureRestartLabelVisible();
     hideRestartAfterAbort();
-  });
+    // #region agent log
+    __qvLog("H1", "static/index.html:abortObserver", "MutationObserver tick", {
+      throttled: true,
+    });
+    // #endregion agent log
+  }, "abort");
+
+  const observer = new MutationObserver(abortObserverHandler);
 
   observer.observe(document.body, { childList: true, subtree: true });
   clearAbortOnNewUser();
@@ -320,8 +785,56 @@
     },
   };
 
+  const __qvLog = typeof window !== "undefined" && window.__qvLog ? window.__qvLog : () => {};
+
+  // #region agent log
+  __qvLog("H1", "static/index.html:voiceBootstrap", "Voice script bootstrap", {
+    href: location.href,
+    readyState: document.readyState,
+  });
+  // #endregion agent log
+
+  let projectCache = null;
+  let projectFetchInFlight = false;
+  let projectFetchTs = 0;
+
   const textValue = (value) => String(value ?? "").trim();
   const normalize = (value) => textValue(value).toLowerCase();
+
+  // Throttle MutationObserver handlers to once per animation frame.
+  // Scoped to voice IIFE to avoid cross-script reference errors.
+  const makeRafThrottled = (fn, label) => {
+    let scheduled = false;
+    let lastLog = 0;
+    let tickCount = 0;
+    return () => {
+      tickCount += 1;
+      if (scheduled) return;
+      scheduled = true;
+      requestAnimationFrame(() => {
+        scheduled = false;
+        try {
+          fn();
+        } catch {
+          // ignore
+        }
+        const now = Date.now();
+        if (now - lastLog > 1000) {
+          // #region agent log
+          const project = getProject();
+          __qvLog("H1", "static/index.html:observer", "Observer tick (throttled)", {
+            label,
+            ticks: tickCount,
+            hasProject: Boolean(project),
+            voiceEnabled: Boolean(project && project.voice_enabled),
+          });
+          // #endregion agent log
+          lastLog = now;
+          tickCount = 0;
+        }
+      });
+    };
+  };
 
   const readJson = (key) => {
     try {
@@ -333,9 +846,24 @@
     }
   };
 
+  const setProjectCache = (payload) => {
+    if (!payload || typeof payload !== "object") return;
+    projectCache = payload;
+    try {
+      localStorage.setItem("project_details", JSON.stringify(payload));
+    } catch {
+      // ignore
+    }
+  };
+
   const getProject = () => {
+    if (projectCache) return projectCache;
     const stored = readJson("project_details");
-    return Array.isArray(stored) ? stored[0] : stored;
+    const project = Array.isArray(stored) ? stored[0] : stored;
+    if (project && typeof project === "object") {
+      projectCache = project;
+    }
+    return project;
   };
 
   const getProjectId = () => {
@@ -357,9 +885,45 @@
     return null;
   };
 
+  const ensureProject = () => {
+    const now = Date.now();
+    if (projectFetchInFlight || now - projectFetchTs < 2500) return;
+    const projectId = getProjectId();
+    if (!projectId) return;
+    projectFetchInFlight = true;
+    projectFetchTs = now;
+    fetch("/api/project/", { headers: { projectId } })
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error("Project fetch failed"))))
+      .then((data) => {
+        const project = Array.isArray(data) ? data[0] : data;
+        if (project && typeof project === "object") {
+          setProjectCache(project);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        projectFetchInFlight = false;
+        requestAnimationFrame(() => {
+          try {
+            attach();
+          } catch {
+            // ignore
+          }
+        });
+      });
+  };
+
   const isVoiceEnabled = () => {
     const project = getProject();
-    if (!project) return false;
+    if (!project) {
+      ensureProject();
+      return false;
+    }
+    // #region agent log
+    __qvLog("H1", "static/index.html:isVoiceEnabled", "Voice enabled check", {
+      voice_enabled: Boolean(project.voice_enabled),
+    });
+    // #endregion agent log
     return Boolean(project.voice_enabled);
   };
 
@@ -390,8 +954,7 @@
     const style = document.createElement("style");
     style.id = VOICE.ids.style;
     style.textContent = `
-      #${VOICE.ids.wrap}{display:inline-flex;align-items:center;gap:8px;position:relative;z-index:5}
-      #${VOICE.ids.micButton}{width:44px;height:44px;border-radius:9999px;border:1px solid rgba(0,0,0,.14);background:transparent;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;position:relative;z-index:6;pointer-events:auto}
+      #${VOICE.ids.micButton}{width:44px;height:44px;border-radius:9999px;border:1px solid rgba(0,0,0,.14);background:transparent;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;position:relative;z-index:6;pointer-events:auto;flex-shrink:0}
       #${VOICE.ids.micButton}[disabled]{opacity:.55;cursor:not-allowed}
       #${VOICE.ids.micButton} svg{width:18px;height:18px;opacity:.85}
 
@@ -821,9 +1384,26 @@
 
     setHelper(host, "Requesting microphone access...");
     setButtonDisabled(micBtn, true);
+    // #region agent log
+    __qvLog("H2", "static/index.html:startRecording", "Requesting microphone access", {
+      secureContext: Boolean(window.isSecureContext),
+      hasMediaDevices: Boolean(navigator.mediaDevices),
+    });
+    // #endregion agent log
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      // #region agent log
+      __qvLog("H2", "static/index.html:startRecording", "getUserMedia success", {
+        tracks: stream.getTracks().length,
+      });
+      // #endregion agent log
       state.stream = stream;
       state.chunks = [];
       state.cancelled = false;
@@ -860,6 +1440,11 @@
       setButtonDisabled(micBtn, false);
       recorder.start();
     } catch (err) {
+      // #region agent log
+      __qvLog("H2", "static/index.html:startRecording", "getUserMedia failed", {
+        error: String(err || ""),
+      });
+      // #endregion agent log
       const name = err && typeof err === "object" ? String(err.name || "") : "";
       let msg = "Microphone permission not granted.";
       if (name === "NotAllowedError" || name === "PermissionDeniedError") {
@@ -874,6 +1459,67 @@
     } finally {
       setButtonDisabled(micBtn, false);
     }
+  };
+
+  const styleMicButton = (micBtn, replyBtn, project) => {
+    if (!micBtn || !replyBtn) return;
+    const replyStyle = getComputedStyle(replyBtn);
+    const rect = replyBtn.getBoundingClientRect();
+    const baseSize = rect.height || 44;
+    const size = Math.max(36, baseSize);
+    const fallback = textValue(project?.colour) || "#684EAD";
+    const replyBg = replyStyle.backgroundColor;
+    const accent = replyBg && replyBg !== "rgba(0, 0, 0, 0)" && replyBg !== "transparent" ? replyBg : fallback;
+    const bg = replyStyle.backgroundColor || "transparent";
+    const borderColor =
+      replyStyle.borderColor && replyStyle.borderColor !== "rgba(0, 0, 0, 0)" ? replyStyle.borderColor : accent;
+
+    micBtn.style.height = `${size}px`;
+    micBtn.style.width = `${size}px`;
+    micBtn.style.borderRadius = "9999px";
+    micBtn.style.marginRight = "8px";
+    micBtn.style.borderWidth = replyStyle.borderWidth || "1.5px";
+    micBtn.style.borderStyle = replyStyle.borderStyle || "solid";
+    micBtn.style.borderColor = borderColor;
+    micBtn.style.boxShadow = replyStyle.boxShadow || "none";
+    micBtn.style.backgroundColor = "#fff";
+    micBtn.style.color = accent || replyStyle.color || "#684EAD";
+  };
+
+  // #region agent log
+  const logMicLayout = (micBtn, micHost, replyBtn) => {
+    try {
+      const rect = micBtn.getBoundingClientRect();
+      const micStyle = getComputedStyle(micBtn);
+      const hostStyle = micHost ? getComputedStyle(micHost) : null;
+      __qvLog("H2", "static/index.html:micLayout", "Mic layout", {
+        micRect: {
+          left: Math.round(rect.left),
+          top: Math.round(rect.top),
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+        },
+        micPointer: micStyle.pointerEvents,
+        micZ: micStyle.zIndex,
+        hostPointer: hostStyle ? hostStyle.pointerEvents : null,
+        hostZ: hostStyle ? hostStyle.zIndex : null,
+        replyTag: replyBtn ? replyBtn.tagName : null,
+      });
+    } catch {
+      // ignore
+    }
+  };
+  // #endregion agent log
+
+  const ensureActionRowLayout = (parent) => {
+    if (!parent || !(parent instanceof HTMLElement)) return;
+    const style = getComputedStyle(parent);
+    if (!["flex", "inline-flex"].includes(style.display)) {
+      parent.style.display = "inline-flex";
+      parent.style.alignItems = "center";
+      parent.style.gap = "8px";
+    }
+    parent.style.overflow = "visible";
   };
 
   const attach = () => {
@@ -911,11 +1557,31 @@
       return globalLeaf ? findClickableParent(globalLeaf) : null;
     };
 
-    const replyBtn = findReplyNear();
-    if (!replyBtn) return;
+    const replyBtnRaw = findReplyNear();
+    if (!replyBtnRaw) return;
+    const replyBtnRoot =
+      (replyBtnRaw instanceof HTMLElement &&
+        (replyBtnRaw.closest("button") ||
+          replyBtnRaw.closest("[role='button']") ||
+          replyBtnRaw.closest("[tabindex]"))) ||
+      replyBtnRaw;
+    const replyBtn = replyBtnRoot;
+    // #region agent log
+    if (!window.__qvAttachLogTs || Date.now() - window.__qvAttachLogTs > 1000) {
+      window.__qvAttachLogTs = Date.now();
+      __qvLog("H1", "static/index.html:attach", "Attach found input/reply", {
+        inputTag: inputEl ? inputEl.tagName : null,
+        replyText: (replyBtn.textContent || "").slice(0, 50),
+        replyDisabled: Boolean(replyBtn.disabled),
+        replyTag: replyBtn.tagName,
+        replyRole: replyBtn.getAttribute ? replyBtn.getAttribute("role") : null,
+        replyParentTag: replyBtn.parentElement ? replyBtn.parentElement.tagName : null,
+      });
+    }
+    // #endregion agent log
 
     const existingMic = document.getElementById(VOICE.ids.micButton);
-    if (existingMic) {
+    if (existingMic && document.body.contains(existingMic)) {
       const isProcessing = existingMic.dataset.processing === "1";
       if (!isProcessing) {
         // Ensure mic stays enabled even if the UI disables other buttons.
@@ -924,6 +1590,18 @@
         existingMic.removeAttribute("disabled");
         existingMic.setAttribute("aria-disabled", "false");
       }
+      // Keep mic next to reply if React moved the button.
+      if (replyBtn.parentElement && existingMic.previousElementSibling !== replyBtn) {
+        try {
+          replyBtn.parentElement.insertBefore(existingMic, replyBtn);
+        } catch {
+          // Ignore
+        }
+      }
+      if (replyBtn.parentElement) {
+        ensureActionRowLayout(replyBtn.parentElement);
+      }
+      styleMicButton(existingMic, replyBtn, project);
       return;
     }
 
@@ -934,21 +1612,48 @@
     micBtn.dataset.processing = "0";
     micBtn.appendChild(createIcon());
 
-    const parent = replyBtn.parentElement;
+    let parent = replyBtn.parentElement || null;
+    if (parent && parent.tagName && parent.tagName.toLowerCase() === "button") {
+      parent = parent.parentElement;
+    }
+    if (parent && parent.getAttribute && parent.getAttribute("role") === "button") {
+      parent = parent.parentElement;
+    }
     if (!parent) return;
 
-    let wrap = document.getElementById(VOICE.ids.wrap);
-    if (!wrap) {
-      wrap = document.createElement("div");
-      wrap.id = VOICE.ids.wrap;
+    ensureActionRowLayout(parent);
+    let micHost = document.getElementById(VOICE.ids.wrap);
+    if (!micHost) {
+      micHost = document.createElement("div");
+      micHost.id = VOICE.ids.wrap;
+      micHost.style.display = "inline-flex";
+      micHost.style.alignItems = "center";
+      micHost.style.marginRight = "16px";
     }
-
-    // Replace reply button position with our wrap (mic + reply).
-    if (replyBtn.parentElement === parent) {
-      parent.insertBefore(wrap, replyBtn);
-      wrap.appendChild(micBtn);
-      wrap.appendChild(replyBtn);
+    micHost.appendChild(micBtn);
+    try {
+      parent.insertBefore(micHost, replyBtn);
+    } catch {
+      return;
     }
+    if (replyBtn.contains(micBtn) || replyBtn.contains(micHost)) {
+      try {
+        const outer = parent.parentElement || parent;
+        outer.insertBefore(micHost, parent);
+      } catch {
+        // ignore
+      }
+    }
+    styleMicButton(micBtn, replyBtn, project);
+    // #region agent log
+    logMicLayout(micBtn, micHost, replyBtn);
+    // #endregion agent log
+    // #region agent log
+    __qvLog("H1", "static/index.html:attachInserted", "Mic inserted", {
+      parentTag: parent ? parent.tagName : null,
+      micPresent: Boolean(document.getElementById(VOICE.ids.micButton)),
+    });
+    // #endregion agent log
 
     const host = createVoiceHost(inputEl);
 
@@ -960,7 +1665,25 @@
     const retryBtn = host.querySelector(`#${VOICE.ids.bannerRetry}`);
     const fileInput = host.querySelector(`#${VOICE.ids.fileInput}`);
 
-    micBtn.addEventListener("click", () => startRecording({ host, micBtn, replyBtn, inputEl }));
+    if (!micBtn.dataset.listenerAttached) {
+      micBtn.dataset.listenerAttached = "1";
+      micBtn.addEventListener("pointerdown", () => {
+        // #region agent log
+        __qvLog("H2", "static/index.html:micPointerDown", "Mic pointer down", {});
+        // #endregion agent log
+      });
+    }
+
+    micBtn.addEventListener("click", () => {
+      // #region agent log
+      __qvLog("H2", "static/index.html:micClick", "Mic clicked", {
+        replyTag: replyBtn.tagName,
+        parentTag: parent ? parent.tagName : null,
+        micHostTag: micHost ? micHost.tagName : null,
+      });
+      // #endregion agent log
+      startRecording({ host, micBtn, replyBtn, inputEl });
+    });
 
     if (stopBtn) {
       stopBtn.addEventListener("click", () => {
@@ -1036,14 +1759,21 @@
     }
   };
 
-  const observer = new MutationObserver(() => {
+  const voiceObserverHandler = makeRafThrottled(() => {
     // Re-attach if React re-renders.
     try {
       attach();
     } catch {
       // Ignore
     }
-  });
+    // #region agent log
+    __qvLog("H1", "static/index.html:voiceObserver", "MutationObserver tick", {
+      throttled: true,
+    });
+    // #endregion agent log
+  }, "voice");
+
+  const observer = new MutationObserver(voiceObserverHandler);
 
   observer.observe(document.body, { childList: true, subtree: true });
   attach();

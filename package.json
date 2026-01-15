@@ -12,4 +12,3 @@
     "test:e2e": "playwright test"
   }
 }
-

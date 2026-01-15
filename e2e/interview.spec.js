@@ -1,6 +1,8 @@
 import { test, expect } from "@playwright/test";
 
 const PROJECT_ID = process.env.QVANTIFY_PROJECT_ID || "sample_game_funnel_2026_01_14";
+const VOICE_PROJECT_ID =
+  process.env.QVANTIFY_VOICE_PROJECT_ID || "d0aaae3f-b133-4099-a6fb-9509ed750a24";
 const EXTERNAL_ID =
   process.env.QVANTIFY_EXTERNAL_ID || `e2e_user_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 
@@ -43,6 +45,7 @@ test("live interview journey: real backend + database", async ({ page }) => {
   }
 
   await expect(page.getByText(/question/i)).toBeVisible();
+  await expect(page.locator("#qv-interview-progress")).toBeVisible();
   const input = page.getByRole("textbox");
   await expect(input).toBeVisible();
   await expect(input).toBeEnabled();
@@ -83,9 +86,12 @@ test("voice UI: denied permission shows help banner (script-injected)", async ({
       response.status() === 200
   );
 
-  await page.goto(`/?interview=${encodeURIComponent(PROJECT_ID)}&external_id=${encodeURIComponent(EXTERNAL_ID)}_voice`, {
-    waitUntil: "domcontentloaded",
-  });
+  await page.goto(
+    `/?interview=${encodeURIComponent(VOICE_PROJECT_ID)}&external_id=${encodeURIComponent(EXTERNAL_ID)}_voice`,
+    {
+      waitUntil: "domcontentloaded",
+    }
+  );
 
   const projectPayload = await (await projectResponse).json();
   expect(Array.isArray(projectPayload)).toBeTruthy();
@@ -102,26 +108,6 @@ test("voice UI: denied permission shows help banner (script-injected)", async ({
   const input = page.getByRole("textbox");
   await expect(input).toBeVisible();
   await expect(input).toBeEnabled();
-
-  // Ensure voice is enabled in localStorage for this test without touching DB.
-  await page.evaluate(() => {
-    try {
-      const raw = localStorage.getItem("project_details");
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      const proj = Array.isArray(parsed) ? parsed[0] : parsed;
-      if (!proj || typeof proj !== "object") return;
-      proj.voice_enabled = true;
-      localStorage.setItem("project_details", JSON.stringify(Array.isArray(parsed) ? [proj] : proj));
-      // Trigger a DOM mutation so the injected observer re-runs attachment logic.
-      const d = document.createElement("div");
-      d.id = "qvantify-voice-trigger";
-      document.body.appendChild(d);
-      d.remove();
-    } catch {
-      // Ignore
-    }
-  });
 
   const mic = page.locator('[aria-label="Record voice"]');
   await expect(mic).toBeVisible();

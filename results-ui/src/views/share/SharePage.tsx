@@ -239,20 +239,31 @@ export function SharePage() {
     id: string;
     label: string;
   }
+  interface TranscriptGroupItem {
+    type: "group";
+    id: string;
+    label: string;
+  }
   interface TranscriptMessageItem {
     type: "message";
     id: string;
     record: (typeof displayRecords)[number];
   }
-  type TranscriptItem = TranscriptTopicItem | TranscriptMessageItem;
+  type TranscriptItem = TranscriptGroupItem | TranscriptTopicItem | TranscriptMessageItem;
   const transcriptItems = React.useMemo<TranscriptItem[]>(() => {
     const items: TranscriptItem[] = [];
     const topicLabels = new Map<string, string>();
     let lastTopicKey = "";
+    let lastGroupKey = "";
     for (const record of displayRecords) {
       const topicId = String(record.topic ?? "").trim();
       const explicitLabel = String(record.topic_label ?? "").trim();
       const fallbackLabel = String(record.content ?? "").trim();
+      const groupLabel = String(record.topic_group ?? "").trim();
+      if (groupLabel && groupLabel !== lastGroupKey) {
+        items.push({ type: "group", id: `group-${record.id}`, label: groupLabel });
+        lastGroupKey = groupLabel;
+      }
       if (topicId) {
         if (explicitLabel) {
           topicLabels.set(topicId, explicitLabel);
@@ -935,6 +946,15 @@ export function SharePage() {
                 <div className="flex-1 overflow-y-auto p-6 bg-[var(--bg-secondary)]">
                   <div className="space-y-4">
                     {transcriptItems.map((item) => {
+                      if (item.type === "group") {
+                        return (
+                          <div key={item.id} className="flex justify-center">
+                            <div className="rounded-full bg-[var(--brand-primary)] px-3 py-1 text-xs font-semibold text-white shadow-sm">
+                              {item.label}
+                            </div>
+                          </div>
+                        );
+                      }
                       if (item.type === "topic") {
                         return (
                           <div key={item.id} className="flex justify-center">

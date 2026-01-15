@@ -61,13 +61,17 @@ body,
   height: 100%;
 }
 
+html {
+  background: var(--bg-base);
+}
+
 body {
   margin: 0;
   font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, sans-serif;
   color: var(--text-primary);
   background: var(--bg-base);
   background-image: none;
-  background-attachment: fixed;
+  background-attachment: scroll;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

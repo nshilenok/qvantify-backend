@@ -1,0 +1,6 @@
+---
+description: 
+globs: src/**/*.jsx
+alwaysApply: false
+---
+- Always use functional components with hooks in React development.

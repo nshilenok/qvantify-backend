@@ -307,6 +307,8 @@ CREATE TABLE IF NOT EXISTS topics (
     id TEXT PRIMARY KEY,
     project TEXT,
     system TEXT,
+    title TEXT,
+    "group" TEXT,
     length INTEGER,
     sequence INTEGER,
     topic_type TEXT,

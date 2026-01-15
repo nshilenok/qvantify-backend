@@ -16,6 +16,7 @@ This file is the **source of truth** for what we expect to work and how we test 
     - ends with `{"type":"final","response":"...","status":"open|closed","answers":[...]}`.
 - **OpenAI gpt-5.***: `max_tokens` is translated to `max_completion_tokens` to avoid 400 errors.
 - **Topic switching**: `topic.py` advances topics using `topics` + `topics_log`.
+- **Progress bar**: a 2px top line on the respondent interview UI shows `current_topic_index / total_topics`, using the project primary color and updating after `/api/interview/` and `/api/reply/`.
 - **Session inactivity auto-close**: open sessions are marked closed when no **user input** is received for 10 minutes (checks `records.role='user'` and updates the latest `topics_log` entry). Configure with `SESSION_INACTIVITY_MINUTES`.
 - **Abort behavior**: clicking Abort sends the user to the Success screen and does not offer a restart CTA for that session.
 - **Abort copy override**: if a project sets `abort_title` and/or `abort_message`, those values replace the Success title/message when the user aborted.
@@ -23,6 +24,7 @@ This file is the **source of truth** for what we expect to work and how we test 
   - **Feature flag**: `projects.voice_enabled` (boolean, default `false`). When `false`:
     - Mic UI is not shown (no change to existing sessions).
     - `POST /api/voice-transcribe/` returns `404` to avoid leaking feature presence.
+- **Config resolution**: voice UI reads cached `project_details`; if missing, it fetches `/api/project/` using `projectId` from the URL and caches the result before attaching.
   - **UI placement**: mic icon button is rendered next to the Reply/Send button.
   - **Flow**:
     - Click mic -> browser requests microphone permission.
@@ -30,6 +32,7 @@ This file is the **source of truth** for what we expect to work and how we test 
     - On Stop: upload the recorded audio clip to backend -> backend transcribes full clip -> returns text.
     - Insert text into the existing answer input; user can edit and then **Send** normally.
     - Provide **Undo insert**, **Copy**, and **Clear voice draft** (delete generated voice text without clobbering typed input).
+  - **Capture tuning**: request `echoCancellation`, `noiseSuppression`, and `autoGainControl` for better distance pickup.
   - **UX helpers**:
     - Idle helper: "Just respond with your voice and we'll turn it into text."
     - Processing helper: "Turning your voice into text..."
@@ -91,6 +94,7 @@ This file is the **source of truth** for what we expect to work and how we test 
 - **FE (Playwright, live backend)**:
   - Targets `QVANTIFY_E2E_BASE_URL` (production/staging), no API mocking
   - Interview flow: load project, create respondent, initialize interview, send reply, refresh mid-session
+  - Progress bar: visible once the interview question loads and updates after replies
   - Abort flow: clicking Abort shows `abort_title`/`abort_message` when provided and hides restart CTA
   - Voice input (when enabled for a project): mic button appears next to Reply; denied permission shows banner + help; stop -> processing -> text inserted into input
   - Results share: share login endpoint must **not** return `Missing SECRET_KEY` (live health check)
@@ -148,6 +152,11 @@ This file is the **source of truth** for what we expect to work and how we test 
 #### 5.1.3 Project Properties (Admin-only)
 - **UI**: project page shows a **Project properties** panel listing all project config fields (UI copy + model config).
 - **Boolean badges**: true/false fields use clear visual badges, including a dedicated **Welcome screen** status.
+- **Voice toggle**: project settings includes a **Voice input** switch that updates `projects.voice_enabled` for the interview UI.
+
+#### 5.1.6 Project Tabs (Admin-only)
+- **Tab isolation**: switching tabs hides unrelated panels (Results, Topics, Usage, Settings).
+- **Topics tab**: only the topics table + search are visible (no sessions list or transcript).
 
 #### 5.1.4 Interview Analysis (Auto)
 - **Auto-analysis trigger**: runs when a session closes (latest topic status is closed) or via admin stale analysis.
@@ -169,10 +178,12 @@ This file is the **source of truth** for what we expect to work and how we test 
 #### 5.1.6 Topics Tables (Admin-only)
 - **Purpose**: give admins full visibility into topic configuration and topic execution logs per project.
 - **API**:
-  - `GET /api/admin/projects/<project_id>/topics` → all topic rows for the project.
-  - `GET /api/admin/projects/<project_id>/topics_log` → topic log rows joined by project.
+  - `GET /api/projects/<project_id>/topics` → all topic rows for the project.
+  - `GET /api/projects/<project_id>/topics_log` → topic log rows joined by project.
 - **Topics table columns**:
-  - `id`, `project`, `system`, `length`, `sequence`, `topic_type`, `expiration_strategy`, `defined_answers`.
+  - `id`, `project`, `title`, `group`, `system`, `length`, `sequence`, `topic_type`, `expiration_strategy`, `defined_answers`.
+  - `title` is optional; when empty it is derived from the topic `system` prompt using 1–2 words (prefers the `Current Theme:` label when present).
+  - `group` is an optional meta label used for higher-level grouping of topics.
 - **Topic logs table columns**:
   - `id`, `topic_id`, `user_id`, `started_at`, `status`, `responses`.
 - **UI placement**: admin project page, below the transcript card, as two separate cards.
@@ -180,6 +191,15 @@ This file is the **source of truth** for what we expect to work and how we test 
   - Each card shows a count summary and a search field (filters client-side).
   - Columns are horizontally scrollable on small screens.
   - ID fields are copyable; long `system` and `defined_answers` values open in a modal for full viewing.
+
+#### 5.1.7 Admin Project Tabs
+- **Tabs**: Results, Topics, Usage, Project Settings.
+- **Placement**: tabs render in the project header between project metadata and the Share/Export/Refresh actions.
+- **Visual style**: horizontal tab strip with an underline divider; active tab appears as a connected sheet (rounded top, border, no bottom border), inactive tabs are muted text on a transparent background with hover surface.
+- **Results**: transcript viewer + session notes/likes + summary (current behavior).
+- **Topics**: shows Topics + Topic logs cards.
+- **Usage**: shows the token usage card (total tokens, cost, and service split).
+- **Project Settings**: shows the project properties list previously shown in the sidebar.
 
 #### 5.2 Customer View (Read-only Share Link)
 - **URL**: `/results/share/<token>`
@@ -219,6 +239,7 @@ This file is the **source of truth** for what we expect to work and how we test 
 - **Body**: messenger-style transcript; system prompts hidden by default (admin can toggle).
 - **Transcript cleanup**: empty/blank messages are suppressed (no placeholder bubbles).
 - **Topic separators**: transcript inserts centered grey separators for the initial topic and any topic changes, using the topic label/title from `records.topic`.
+- **Group separators**: transcript inserts a filled highlight separator when the topic `group` changes (shown once per group).
 - **Actions**:
   - **Session-level** like/dislike only
   - **Notes** auto-save live with visible status
@@ -254,13 +275,17 @@ This file is the **source of truth** for what we expect to work and how we test 
   - Customer can login via share URL, view results read-only, export CSV
 - Customer share view: notes autosave works and no client-side runtime errors
   - Transcript shows topic separator chips when topics change (admin + share)
+  - Topics table shows `title` values (short labels derived from `system`)
 
 ## Technical Architecture
 
 ### Backend
 - **Flask app**: `server.py` serves both frontend + API.
 - **DB**: `database.py` (psycopg2) with env-only config in `credentials.py` (loads `env.local`/`.env` via `python-dotenv`).
-- **Vercel routing**: `/api/*` (with and without trailing slash) rewrites to Railway backend; `/` serves `static/index.html`.
+- **Vercel routing**:
+  - `/api/*` is proxied by a Vercel Node function (`api/[...path].cjs`) to `QVANTIFY_RAILWAY_URL`.
+  - Debug header `x-qvantify-proxy-base` is added to proxied responses to confirm which backend is used (staging vs prod).
+  - `/` serves `static/index.html` (static bundle).
 
 ### Database (Supabase Postgres)
 - **Schema source**: `database_schema.sql`

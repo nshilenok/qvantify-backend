@@ -306,7 +306,7 @@ class AdminTopicsView(MethodView):
             return err
 
         q = """
-          SELECT id, project, system, length, sequence, topic_type, expiration_strategy, defined_answers
+          SELECT id, project, title, system, "group", length, sequence, topic_type, expiration_strategy, defined_answers
           FROM topics
           WHERE project=%s
           ORDER BY sequence ASC
@@ -318,12 +318,14 @@ class AdminTopicsView(MethodView):
                 {
                     "id": str(row[0]) if row[0] is not None else None,
                     "project": row[1],
-                    "system": row[2],
-                    "length": int(row[3]) if row[3] is not None else None,
-                    "sequence": int(row[4]) if row[4] is not None else None,
-                    "topic_type": row[5],
-                    "expiration_strategy": row[6],
-                    "defined_answers": row[7],
+                    "title": row[2],
+                    "system": row[3],
+                    "group": row[4],
+                    "length": int(row[5]) if row[5] is not None else None,
+                    "sequence": int(row[6]) if row[6] is not None else None,
+                    "topic_type": row[7],
+                    "expiration_strategy": row[8],
+                    "defined_answers": row[9],
                 }
             )
         return jsonify({"topics": topics})
@@ -649,6 +651,28 @@ def close_connection(exception):
 @app.route('/')
 @app.route('/<path:path>')
 def serve_frontend(path=''):
+    # --- debug log ---
+    try:
+        import json as _json
+        from datetime import datetime as _dt
+        payload = {
+            "sessionId": "debug-session",
+            "runId": "run1",
+            "hypothesisId": "H5",
+            "location": "server.py:serve_frontend",
+            "message": "serve_frontend",
+            "data": {"path": path, "request_path": request.path},
+            "timestamp": int(_dt.now().timestamp() * 1000),
+        }
+        with open(
+            "/Users/nikitashilenok/Documents/vibecoding projects/qvantify-fullstack/.cursor/debug.log",
+            "a",
+            encoding="utf-8",
+        ) as f:
+            f.write(_json.dumps(payload) + "\n")
+    except Exception:
+        pass
+    # --- end debug log ---
     if path.startswith('api/'):
         return jsonify(error="Not found"), 404
     if path and os.path.isfile(os.path.join(app.static_folder, path)):
@@ -765,12 +789,13 @@ def gpt_response():
             response = chat.provideResponse(user_response)
             status = chat.retrieveTopicStatus()
             answers = chat.retrieveDefinedAnswers()
+            progress = g.th.getTopicProgress() if hasattr(g, "th") else {"current": 0, "total": 0, "ratio": 0}
             if status == "closed" and _analysis_needed(g.projectId, g.uuid):
                 try:
                     _analyze_and_store(g.projectId, g.uuid)
                 except Exception:
                     logger.exception("Auto-analysis failed for %s/%s", g.projectId, g.uuid)
-            return jsonify(response=response, status=status, answers=answers)
+            return jsonify(response=response, status=status, answers=answers, progress=progress)
 
         # Streaming response (SSE over fetch POST)
         def sse(data: str) -> str:
@@ -782,7 +807,18 @@ def gpt_response():
                 # For single_question etc, we just return the next assistant message as a single event.
                 response_text = chat.provideResponse(user_response)
                 final_status = chat.retrieveTopicStatus()
-                yield sse(json.dumps({"type": "final", "response": response_text, "status": final_status, "answers": chat.retrieveDefinedAnswers()}))
+                progress = g.th.getTopicProgress() if hasattr(g, "th") else {"current": 0, "total": 0, "ratio": 0}
+                yield sse(
+                    json.dumps(
+                        {
+                            "type": "final",
+                            "response": response_text,
+                            "status": final_status,
+                            "answers": chat.retrieveDefinedAnswers(),
+                            "progress": progress,
+                        }
+                    )
+                )
                 if final_status == "closed" and _analysis_needed(g.projectId, g.uuid):
                     try:
                         _analyze_and_store(g.projectId, g.uuid)
@@ -842,7 +878,18 @@ def gpt_response():
                     # Provide initial response for the next topic
                     next_text = chat.provideInitialResponse()
                     final_status = chat.retrieveTopicStatus()
-                    yield sse(json.dumps({"type": "final", "response": next_text, "status": final_status, "answers": chat.retrieveDefinedAnswers()}))
+                    progress = g.th.getTopicProgress() if hasattr(g, "th") else {"current": 0, "total": 0, "ratio": 0}
+                    yield sse(
+                        json.dumps(
+                            {
+                                "type": "final",
+                                "response": next_text,
+                                "status": final_status,
+                                "answers": chat.retrieveDefinedAnswers(),
+                                "progress": progress,
+                            }
+                        )
+                    )
                     if final_status == "closed" and _analysis_needed(g.projectId, g.uuid):
                         try:
                             _analyze_and_store(g.projectId, g.uuid)
@@ -850,7 +897,18 @@ def gpt_response():
                             logger.exception("Auto-analysis failed for %s/%s", g.projectId, g.uuid)
                     return
             final_status = chat.retrieveTopicStatus()
-            yield sse(json.dumps({"type": "final", "response": full, "status": final_status, "answers": chat.retrieveDefinedAnswers()}))
+            progress = g.th.getTopicProgress() if hasattr(g, "th") else {"current": 0, "total": 0, "ratio": 0}
+            yield sse(
+                json.dumps(
+                    {
+                        "type": "final",
+                        "response": full,
+                        "status": final_status,
+                        "answers": chat.retrieveDefinedAnswers(),
+                        "progress": progress,
+                    }
+                )
+            )
             if final_status == "closed" and _analysis_needed(g.projectId, g.uuid):
                 try:
                     _analyze_and_store(g.projectId, g.uuid)
@@ -872,6 +930,33 @@ def gpt_response():
 @app.route('/api/interview/', methods=['GET'])
 def initialize_interview():
     try:
+        # --- debug log ---
+        try:
+            import json as _json
+            from datetime import datetime as _dt
+            payload = {
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "H3",
+                "location": "server.py:initialize_interview",
+                "message": "initialize_interview called",
+                "data": {
+                    "path": request.path,
+                    "has_uuid": bool((request.headers.get("uuid") or "").strip()),
+                    "has_projectId": bool((request.headers.get("projectId") or "").strip()),
+                    "first_answer_present": bool((request.args.get("first_answer") or "").strip()),
+                },
+                "timestamp": int(_dt.now().timestamp() * 1000),
+            }
+            with open(
+                "/Users/nikitashilenok/Documents/vibecoding projects/qvantify-fullstack/.cursor/debug.log",
+                "a",
+                encoding="utf-8",
+            ) as f:
+                f.write(_json.dumps(payload) + "\n")
+        except Exception:
+            pass
+        # --- end debug log ---
         check_if_user_exists()
         first_answer = request.args.get('first_answer')
         
@@ -885,10 +970,93 @@ def initialize_interview():
             g.response_count = 1
             g.baseTopic = g.th.getCurrentTopic()
             g.topic = g.th.switchTopic()
-            return jsonify(response=chat.provideResponse(first_answer), status=chat.retrieveTopicStatus(), answers=chat.retrieveDefinedAnswers())
-        return jsonify(response=chat.provideInitialResponse(), status=chat.retrieveTopicStatus(), answers=chat.retrieveDefinedAnswers())
+            progress = g.th.getTopicProgress() if hasattr(g, "th") else {"current": 0, "total": 0, "ratio": 0}
+            response_text = chat.provideResponse(first_answer)
+            status = chat.retrieveTopicStatus()
+            answers = chat.retrieveDefinedAnswers()
+            # --- debug log ---
+            try:
+                import json as _json
+                from datetime import datetime as _dt
+                payload = {
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "H3",
+                    "location": "server.py:initialize_interview",
+                    "message": "initialize_interview first_answer response",
+                    "data": {
+                        "status": status,
+                        "response_len": len(str(response_text or "")),
+                        "answers_len": len(answers or []),
+                    },
+                    "timestamp": int(_dt.now().timestamp() * 1000),
+                }
+                with open(
+                    "/Users/nikitashilenok/Documents/vibecoding projects/qvantify-fullstack/.cursor/debug.log",
+                    "a",
+                    encoding="utf-8",
+                ) as f:
+                    f.write(_json.dumps(payload) + "\n")
+            except Exception:
+                pass
+            # --- end debug log ---
+            return jsonify(response=response_text, status=status, answers=answers, progress=progress)
+        response_text = chat.provideInitialResponse()
+        status = chat.retrieveTopicStatus()
+        answers = chat.retrieveDefinedAnswers()
+        progress = g.th.getTopicProgress() if hasattr(g, "th") else {"current": 0, "total": 0, "ratio": 0}
+        # --- debug log ---
+        try:
+            import json as _json
+            from datetime import datetime as _dt
+            payload = {
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "H3",
+                "location": "server.py:initialize_interview",
+                "message": "initialize_interview response",
+                "data": {
+                    "status": status,
+                    "response_len": len(str(response_text or "")),
+                    "answers_len": len(answers or []),
+                    "progress": progress,
+                },
+                "timestamp": int(_dt.now().timestamp() * 1000),
+            }
+            with open(
+                "/Users/nikitashilenok/Documents/vibecoding projects/qvantify-fullstack/.cursor/debug.log",
+                "a",
+                encoding="utf-8",
+            ) as f:
+                f.write(_json.dumps(payload) + "\n")
+        except Exception:
+            pass
+        # --- end debug log ---
+        return jsonify(response=response_text, status=status, answers=answers, progress=progress)
     except Exception as e:
         logger.exception('Error in initialize_interview: %s', str(e))
+        # --- debug log ---
+        try:
+            import json as _json
+            from datetime import datetime as _dt
+            payload = {
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "H3",
+                "location": "server.py:initialize_interview",
+                "message": "initialize_interview exception",
+                "data": {"error": str(e)[:200]},
+                "timestamp": int(_dt.now().timestamp() * 1000),
+            }
+            with open(
+                "/Users/nikitashilenok/Documents/vibecoding projects/qvantify-fullstack/.cursor/debug.log",
+                "a",
+                encoding="utf-8",
+            ) as f:
+                f.write(_json.dumps(payload) + "\n")
+        except Exception:
+            pass
+        # --- end debug log ---
         return jsonify(error=str(e)), 500
 
 @app.route('/api/quote/', methods=['GET'])
@@ -1076,6 +1244,29 @@ def admin_get_project(project_id):
         return _json_error("Project not found", 404)
     project = {field: value for field, value in zip(fields, row)}
     return jsonify({"project": project})
+
+
+@app.route("/api/projects/<project_id>", methods=["PUT"])
+def admin_update_project(project_id):
+    err = _require_local_admin()
+    if err:
+        return err
+    payload = request.get_json() or {}
+    if "voice_enabled" not in payload:
+        return _json_error("Missing field: voice_enabled", 400)
+    raw_value = payload.get("voice_enabled")
+    if isinstance(raw_value, bool):
+        enabled = raw_value
+    elif isinstance(raw_value, int) and raw_value in (0, 1):
+        enabled = bool(raw_value)
+    else:
+        return _json_error("voice_enabled must be boolean", 400)
+    try:
+        g.db.query_database_insert("UPDATE projects SET voice_enabled=%s WHERE id=%s", (enabled, project_id))
+    except Exception as exc:
+        logger.exception("Failed to update voice_enabled for project %s: %s", project_id, str(exc))
+        return _json_error("Failed to update project settings", 500)
+    return jsonify({"ok": True, "project": {"id": project_id, "voice_enabled": enabled}})
 
 
 class AdminUsageStats:
@@ -1501,7 +1692,7 @@ def admin_get_session(project_id, respondent_id):
     has_record_admin = True
     try:
         q_recs = """
-          SELECT r.id, r.created_at, r.role, r.content, r.topic, t.system, r.admin_like, r.admin_note
+          SELECT r.id, r.created_at, r.role, r.content, r.topic, t.system, t."group", r.admin_like, r.admin_note
           FROM records r
           LEFT JOIN topics t ON t.id = r.topic
           WHERE r.project=%s AND r.user_id=%s
@@ -1511,7 +1702,7 @@ def admin_get_session(project_id, respondent_id):
     except Exception:
         has_record_admin = False
         q_recs = """
-          SELECT r.id, r.created_at, r.role, r.content, r.topic, t.system
+          SELECT r.id, r.created_at, r.role, r.content, r.topic, t.system, t."group"
           FROM records r
           LEFT JOIN topics t ON t.id = r.topic
           WHERE r.project=%s AND r.user_id=%s
@@ -1529,10 +1720,11 @@ def admin_get_session(project_id, respondent_id):
             "content": r[3],
             "topic": r[4],
             "topic_label": r[5],
+            "topic_group": r[6],
         }
         if has_record_admin:
-            record["admin_like"] = int(r[6] or 0)
-            record["admin_note"] = r[7]
+            record["admin_like"] = int(r[7] or 0)
+            record["admin_note"] = r[8]
         records_out.append(record)
 
     proj_row = None
@@ -2278,7 +2470,7 @@ def share_get_session(token, respondent_id):
         return _json_error("Session not found", 404)
 
     q_recs = """
-      SELECT r.id, r.created_at, r.role, r.content, r.topic, t.system
+      SELECT r.id, r.created_at, r.role, r.content, r.topic, t.system, t."group"
       FROM records r
       LEFT JOIN topics t ON t.id = r.topic
       WHERE r.project=%s AND r.user_id=%s AND r.role <> 'system'
@@ -2295,6 +2487,7 @@ def share_get_session(token, respondent_id):
                 "content": r[3],
                 "topic": r[4],
                 "topic_label": r[5],
+                "topic_group": r[6],
             }
         )
 

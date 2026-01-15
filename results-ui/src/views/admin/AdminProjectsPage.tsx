@@ -146,7 +146,7 @@ export function AdminProjectsPage() {
           {q.data.projects.map((p) => (
             <Link
               key={p.id}
-              to="/admin/projects/$projectId"
+              to="/projects/$projectId"
               params={{ projectId: p.id }}
               className="group block"
             >

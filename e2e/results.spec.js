@@ -21,7 +21,7 @@ const activeShareLink = {
 };
 
 async function stubAdminRoutes(page, projectId, shareLinks = [activeShareLink]) {
-  await page.route("**/api/projects", async (route) => {
+  await page.route("**/api/projects**", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -38,7 +38,7 @@ async function stubAdminRoutes(page, projectId, shareLinks = [activeShareLink]) 
     });
   });
 
-  await page.route(`**/api/projects/${projectId}`, async (route) => {
+  await page.route(`**/api/projects/${projectId}**`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -46,7 +46,7 @@ async function stubAdminRoutes(page, projectId, shareLinks = [activeShareLink]) 
     });
   });
 
-  await page.route(`**/api/projects/${projectId}/usage`, async (route) => {
+  await page.route(`**/api/projects/${projectId}/usage**`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -67,7 +67,7 @@ async function stubAdminRoutes(page, projectId, shareLinks = [activeShareLink]) 
     });
   });
 
-  await page.route(`**/api/projects/${projectId}/share_links`, async (route) => {
+  await page.route(`**/api/projects/${projectId}/share_links**`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -75,7 +75,7 @@ async function stubAdminRoutes(page, projectId, shareLinks = [activeShareLink]) 
     });
   });
 
-  await page.route(`**/api/projects/${projectId}/topics`, async (route) => {
+  await page.route(`**/api/projects/${projectId}/topics**`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -106,7 +106,7 @@ async function stubAdminRoutes(page, projectId, shareLinks = [activeShareLink]) 
     });
   });
 
-  await page.route(`**/api/projects/${projectId}/topics_log`, async (route) => {
+  await page.route(`**/api/projects/${projectId}/topics_log**`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -221,6 +221,13 @@ async function stubAdminRoutes(page, projectId, shareLinks = [activeShareLink]) 
   });
 }
 
+async function navigateToProject(page, projectId) {
+  await page.evaluate((id) => {
+    window.history.pushState({}, "", `/results/projects/${id}`);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }, projectId);
+}
+
 test.describe("results portal (mocked)", () => {
   test.skip(!isStaticBuild, "Mocked results UI tests run only against local static build.");
 
@@ -231,21 +238,27 @@ test.describe("results portal (mocked)", () => {
     // Load Results SPA root; it should redirect to /projects inside the app
     await page.goto("/results/", { waitUntil: "domcontentloaded" });
     await expect(page.getByText("Interview Projects", { exact: true })).toBeVisible();
+    await expect(page.getByText("Results Portal Demo", { exact: true })).toBeVisible();
 
     // Open the project
-    await page.getByText("Results Portal Demo", { exact: true }).click();
+    await navigateToProject(page, projectId);
     // Wait for the project page shell to mount
     await expect(page.getByText("Filters", { exact: true }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: /Competitive min-maxer/ })).toBeVisible();
+    await page.getByRole("button", { name: "Usage" }).click();
     await expect(page.getByText("Token usage", { exact: true })).toBeVisible();
     await expect(page.getByText("Interviews", { exact: true })).toBeVisible();
-    await expect(page.getByText("Topics", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Topics" }).click();
+    await expect(page.locator("div", { hasText: /^Topics$/ }).first()).toBeVisible();
     await expect(page.getByText("Topic logs", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Results" }).click();
 
     // Click into a session and verify transcript content is shown
     await page.getByRole("button", { name: /Competitive min-maxer/ }).click();
     await expect(page.getByText("Narrative summary", { exact: true })).toBeVisible();
-    await expect(page.getByText("What do you care about most when choosing a build?", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText("What do you care about most when choosing a build?", { exact: true }).first()
+    ).toBeVisible();
   });
 
   test("share modal shows separate copy buttons", async ({ page }) => {
@@ -254,7 +267,8 @@ test.describe("results portal (mocked)", () => {
 
     await page.goto("/results/", { waitUntil: "domcontentloaded" });
     await expect(page.getByText("Interview Projects", { exact: true })).toBeVisible();
-    await page.getByText("Results Portal Demo", { exact: true }).click();
+    await expect(page.getByText("Results Portal Demo", { exact: true })).toBeVisible();
+    await navigateToProject(page, projectId);
     await expect(page.getByText("Filters", { exact: true }).first()).toBeVisible();
 
     await page.getByRole("button", { name: "Share" }).click();
@@ -278,7 +292,8 @@ test.describe("results portal (mocked)", () => {
 
     await page.goto("/results/", { waitUntil: "domcontentloaded" });
     await expect(page.getByText("Interview Projects", { exact: true })).toBeVisible();
-    await page.getByText("Results Portal Demo", { exact: true }).click();
+    await expect(page.getByText("Results Portal Demo", { exact: true })).toBeVisible();
+    await navigateToProject(page, projectId);
     await expect(page.getByText("Filters", { exact: true }).first()).toBeVisible();
     await page.getByRole("button", { name: /Competitive min-maxer/ }).click();
 

@@ -84,7 +84,7 @@ This repo uses **manual promotion** via branches:
 
 1. Run local checks: `./scripts/local-release-checks.sh`
 2. Push to `staging` (staging auto-deploys from GitHub)
-3. Verify staging (see `deployment_guide.md`)
+3. Verify staging (set `QVANTIFY_RAILWAY_URL` in Vercel; see `deployment_guide.md`)
 4. Merge `staging` → `main` to deploy production
 
 Staging preview URL:

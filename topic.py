@@ -1,6 +1,7 @@
 from flask import g
 from datetime import datetime, timezone, timedelta
 import logging
+from drawscape_factorio import DrawscapeFactorio
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,20 @@ class topicHandler():
 			)
 			topics.append(topic_row)
 		return topics
+
+	def getTopicProgress(self):
+		total = DrawscapeFactorio.normalize_tokens(len(self.topics))
+		if total <= 0:
+			return {"current": 0, "total": 0, "ratio": 0}
+		current_topic_id = self.getCurrentTopic()
+		current_row = self.findTopicById(current_topic_id)
+		current_no = DrawscapeFactorio.normalize_tokens(current_row[0] if current_row else 0)
+		if current_no < 0:
+			current_no = 0
+		if current_no > total:
+			current_no = total
+		ratio = current_no / total if total else 0
+		return {"current": current_no, "total": total, "ratio": ratio}
 
 	def getCurrentTopic(self):
 		topics_log = self.getTopicsLog()

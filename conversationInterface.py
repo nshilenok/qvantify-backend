@@ -139,6 +139,33 @@ class conversation():
 			chatGPT = LLM()
 
 			system_prompt = self.retrieveTopic() + '\n \n' + self.getDefaultPrompt()
+
+			# region agent log
+			try:
+				import json as _json
+				from datetime import datetime as _dt
+				payload = {
+					"sessionId": "debug-session",
+					"runId": "run1",
+					"hypothesisId": "H3",
+					"location": "conversationInterface.py:provideInitialResponse",
+					"message": "provideInitialResponse entry",
+					"data": {
+						"promptType": promptType,
+						"topicIsChanging": bool(getattr(g, 'topicIsChanging', None) is not None),
+						"system_len": len(system_prompt or ""),
+					},
+					"timestamp": int(_dt.now().timestamp() * 1000),
+				}
+				with open(
+					"/Users/nikitashilenok/Documents/vibecoding projects/qvantify-fullstack/.cursor/debug.log",
+					"a",
+					encoding="utf-8",
+				) as f:
+					f.write(_json.dumps(payload) + "\n")
+			except Exception:
+				pass
+			# endregion agent log
 			
 			if getattr(g, 'topicIsChanging', None) is not None:
 
@@ -147,8 +174,52 @@ class conversation():
 					history = []
 					self.DB.store_message("system", system_prompt)
 					history.append({"role": "system", "content": system_prompt})
+					# region agent log
+					try:
+						import json as _json
+						from datetime import datetime as _dt
+						payload = {
+							"sessionId": "debug-session",
+							"runId": "run1",
+							"hypothesisId": "H3",
+							"location": "conversationInterface.py:provideInitialResponse",
+							"message": "calling LLM for initial response",
+							"data": {"history_len": len(history)},
+							"timestamp": int(_dt.now().timestamp() * 1000),
+						}
+						with open(
+							"/Users/nikitashilenok/Documents/vibecoding projects/qvantify-fullstack/.cursor/debug.log",
+							"a",
+							encoding="utf-8",
+						) as f:
+							f.write(_json.dumps(payload) + "\n")
+					except Exception:
+						pass
+					# endregion agent log
 					response = chatGPT.getResponse(history)
 					self.DB.store_message("assistant",response.choices[0].message.content)
+					# region agent log
+					try:
+						import json as _json
+						from datetime import datetime as _dt
+						payload = {
+							"sessionId": "debug-session",
+							"runId": "run1",
+							"hypothesisId": "H3",
+							"location": "conversationInterface.py:provideInitialResponse",
+							"message": "LLM responded",
+							"data": {"response_len": len(response.choices[0].message.content or "")},
+							"timestamp": int(_dt.now().timestamp() * 1000),
+						}
+						with open(
+							"/Users/nikitashilenok/Documents/vibecoding projects/qvantify-fullstack/.cursor/debug.log",
+							"a",
+							encoding="utf-8",
+						) as f:
+							f.write(_json.dumps(payload) + "\n")
+					except Exception:
+						pass
+					# endregion agent log
 					return response.choices[0].message.content
 
 				elif promptType == "single_question":
