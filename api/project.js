@@ -9,6 +9,8 @@ const PROJECT_FIELDS = [
   "welcome_message",
   "success_title",
   "success_message",
+  "abort_title",
+  "abort_message",
   "welcome_second_title",
   "welcome_second_message",
   "consent",

@@ -152,7 +152,7 @@ This file is the **source of truth** for what we expect to work and how we test 
 - **Primary accent**: brand purple (#684EAD) for highlights, focus, and key CTAs.
 - **Header**: logo-only branding using Qvantify SVG in brand purple for visibility on light backgrounds; no title/subname.
 - **Left sidebar**: sessions grouped by day, sorted latest, quick info (persona label, time, answer count, external_id). Show session/respondent ID with copy.
-- **Session sorting**: sessions can be ordered by latest/oldest activity, responses count, and external_id A–Z/Z–A.
+- **Session sorting**: sessions can be ordered by latest/oldest activity, responses count, and external_id A-Z/Z-A.
 - **Status badges**: sessions show **Open/Closed** state in the sidebar and in the session header.
 - **Projects list**: each project card shows a copyable interview link with a test `external_id` baked into the URL.
 - **Project header**: results page shows copyable Project ID and participation link (`/?interview=<project_id>&external_id=sample@user.com`).

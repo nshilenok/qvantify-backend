@@ -1,1 +1,299 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"/><meta httpequiv="X-UA-Compatible" content="IE=edge"/><meta name="viewport" content="width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1.00001,viewport-fit=cover"/><title>Qvantify</title><style>#root,body,html{width:100%;-webkit-overflow-scrolling:touch;margin:0;padding:0;min-height:100%}#root{flex-shrink:0;flex-basis:auto;flex-grow:1;display:flex;flex:1}html{scroll-behavior:smooth;-webkit-text-size-adjust:100%;height:calc(100% + env(safe-area-inset-top))}body{display:flex;overflow-y:auto;overscroll-behavior-y:none;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;-ms-overflow-style:scrollbar}</style><meta name="theme-color" content="#000000"><meta name="description" content="Survey Form"><link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png"><link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png"><link rel="shortcut icon" href="/favicon.ico"><script defer="defer" src="/static/js/444.34253060.js"></script><script defer="defer" src="/static/js/main.b6eba577.js"></script></head><body><noscript><form action="" style="background-color:#fff;position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999"><div style="font-size:18px;font-family:Helvetica,sans-serif;line-height:24px;margin:10%;width:80%"><p>Oh no! It looks like JavaScript is not enabled in your browser.</p><p style="margin:20px 0"><button type="submit" style="background-color:#4630eb;border-radius:100px;border:none;box-shadow:none;color:#fff;cursor:pointer;font-weight:700;line-height:20px;padding:6px 16px">Reload</button></p></div></form></noscript><div id="root"></div></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta httpequiv="X-UA-Compatible" content="IE=edge"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1.00001,viewport-fit=cover"/>
+<title>Qvantify</title>
+<style>#root,body,html{width:100%;-webkit-overflow-scrolling:touch;margin:0;padding:0;min-height:100%}#root{flex-shrink:0;flex-basis:auto;flex-grow:1;display:flex;flex:1}html{scroll-behavior:smooth;-webkit-text-size-adjust:100%;height:calc(100% + env(safe-area-inset-top))}body{display:flex;overflow-y:auto;overscroll-behavior-y:none;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;-ms-overflow-style:scrollbar}</style>
+<meta name="theme-color" content="#000000">
+<meta name="description" content="Survey Form">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="shortcut icon" href="/favicon.ico">
+<script defer="defer" src="/static/js/444.34253060.js"></script>
+<script defer="defer" src="/static/js/main.b6eba577.js"></script>
+</head>
+<body>
+<noscript><form action="" style="background-color:#fff;position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999"><div style="font-size:18px;font-family:Helvetica,sans-serif;line-height:24px;margin:10%;width:80%"><p>Oh no! It looks like JavaScript is not enabled in your browser.</p><p style="margin:20px 0"><button type="submit" style="background-color:#4630eb;border-radius:100px;border:none;box-shadow:none;color:#fff;cursor:pointer;font-weight:700;line-height:20px;padding:6px 16px">Reload</button></p></div></form></noscript>
+<div id="root"></div>
+<script>
+(() => {
+  const abortFlagKey = "qvantify_abort";
+
+  const readJson = (key) => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  };
+
+  const getProject = () => {
+    const stored = readJson("project_details");
+    return Array.isArray(stored) ? stored[0] : stored;
+  };
+
+  const textValue = (value) => String(value ?? "").trim();
+  const normalize = (value) => textValue(value).toLowerCase();
+
+  const getAbortCta = () => normalize(getProject()?.cta_abort || "Abort");
+  const getRestartCta = () => normalize(getProject()?.cta_restart || "");
+
+  const findClickableParent = (el) => {
+    const isInteractive = (node) => {
+      if (!node) return false;
+      if (!(node instanceof HTMLElement)) return false;
+      const tag = (node.tagName || "").toLowerCase();
+      if (tag === "button" || tag === "a") return true;
+      const role = node.getAttribute("role");
+      if (role === "button") return true;
+      const tabindex = node.getAttribute("tabindex");
+      if (tabindex && tabindex !== "-1") return true;
+      return false;
+    };
+
+    let node = el;
+    for (; node && node !== document.body; node = node.parentElement) {
+      if (isInteractive(node)) return node;
+      const styles = getComputedStyle(node);
+      if (styles && styles.cursor === "pointer") return node;
+    }
+    return el;
+  };
+
+  const setAborted = () => {
+    try {
+      localStorage.setItem(abortFlagKey, "1");
+    } catch {
+      // Ignore
+    }
+  };
+
+  const isAborted = () => {
+    try {
+      return localStorage.getItem(abortFlagKey) === "1";
+    } catch {
+      return false;
+    }
+  };
+
+  const replaceTextMatches = (fromText, toText) => {
+    const from = normalize(fromText);
+    const to = textValue(toText);
+    if (!from || !to) return;
+    document.querySelectorAll("div,span,p,a,button,h1,h2,h3,h4,h5,h6").forEach((el) => {
+      if (el.childElementCount !== 0) return;
+      if (normalize(el.textContent) === from) {
+        el.textContent = to;
+      }
+    });
+  };
+
+  const applyAbortMessaging = () => {
+    if (!isAborted()) return;
+    const project = getProject();
+    if (!project) return;
+    const abortTitle = textValue(project.abort_title);
+    const abortMessage = textValue(project.abort_message);
+    if (!abortTitle && !abortMessage) return;
+
+    const successTitle = textValue(project.success_title);
+    const successMessage = textValue(project.success_message);
+
+    if (abortTitle && successTitle) replaceTextMatches(successTitle, abortTitle);
+    if (abortMessage && successMessage) replaceTextMatches(successMessage, abortMessage);
+  };
+
+  const hideRestartAfterAbort = () => {
+    if (!isAborted()) return;
+    const project = getProject();
+    const restartLabel = normalize(textValue(project?.cta_restart) || "Restart");
+    if (!restartLabel) return;
+    document.querySelectorAll("div,span,p,a,button").forEach((el) => {
+      if (el.childElementCount !== 0) return;
+      if (normalize(el.textContent) !== restartLabel) return;
+      const clickable = findClickableParent(el);
+      if (clickable) clickable.style.display = "none";
+    });
+  };
+
+  // The bundled UI sometimes renders the Restart label but it ends up hidden (e.g. display:none).
+  // Ensure the label is visible and set to a sensible default.
+  const ensureRestartLabelVisible = () => {
+    const project = getProject();
+    const desired = textValue(project?.cta_restart) || "Restart";
+    const desiredNorm = normalize(desired);
+    if (!desiredNorm) return;
+
+    // 1) Unhide any leaf node that already contains the restart label
+    document.querySelectorAll("div,span,p,a,button").forEach((el) => {
+      if (el.childElementCount !== 0) return;
+      if (normalize(el.textContent) !== desiredNorm) return;
+      const display = getComputedStyle(el).display;
+      if (display === "none") el.style.display = "flex";
+    });
+
+    // 2) If a restart button exists but its text node is empty, fill it.
+    // Limit to screens that show success/abort copy (to avoid labeling unrelated icon-only buttons).
+    const anchors = [
+      textValue(project?.abort_title),
+      textValue(project?.abort_message),
+      textValue(project?.success_title),
+      textValue(project?.success_message),
+    ].filter(Boolean);
+    if (!anchors.length) return;
+
+    const anchorNorms = anchors.map((t) => normalize(t));
+    const hasAnchor = Array.from(document.querySelectorAll("div,span,p,h1,h2,h3,h4,h5,h6")).some((el) => {
+      if (el.childElementCount !== 0) return false;
+      const txt = normalize(el.textContent);
+      if (!txt) return false;
+      return anchorNorms.some((a) => txt.includes(a) || a.includes(txt));
+    });
+    if (!hasAnchor) return;
+
+    document.querySelectorAll("[role='button'],button,a,[tabindex]").forEach((btn) => {
+      if (!(btn instanceof HTMLElement)) return;
+      const tab = btn.getAttribute("tabindex");
+      if (tab && tab === "-1") return;
+
+      // Already has some visible text somewhere.
+      const hasDesiredText = normalize(btn.textContent).includes(desiredNorm);
+      if (hasDesiredText) return;
+
+      // Only label empty buttons.
+      if (textValue(btn.textContent)) return;
+
+      // Prefer filling an empty leaf inside the button.
+      const leaf = Array.from(btn.querySelectorAll("div,span,p")).find(
+        (el) => el.childElementCount === 0 && !textValue(el.textContent)
+      );
+      if (leaf) {
+        leaf.textContent = desired;
+        leaf.style.display = "flex";
+        return;
+      }
+      btn.textContent = desired;
+    });
+  };
+
+  const applyRestartLabelFallback = () => {
+    const project = getProject();
+    if (!project) return;
+    if (textValue(project.cta_restart)) return;
+    const fallback = "Restart";
+    const anchorTexts = [
+      project.abort_title,
+      project.abort_message,
+      project.success_title,
+      project.success_message,
+    ]
+      .map((value) => textValue(value))
+      .filter(Boolean);
+    if (!anchorTexts.length) return;
+
+    const anchorNodes = [];
+    const normalizedAnchors = anchorTexts.map((value) => normalize(value));
+    document.querySelectorAll("div,span,p,h1,h2,h3,h4,h5,h6").forEach((el) => {
+      if (el.childElementCount !== 0) return;
+      const label = normalize(el.textContent);
+      if (!label) return;
+      if (normalizedAnchors.some((anchor) => label.includes(anchor) || anchor.includes(label))) {
+        anchorNodes.push(el);
+      }
+    });
+    if (!anchorNodes.length) return;
+
+    const labelEmptyClickTargets = (container, label) => {
+      let labeled = 0;
+      container.querySelectorAll("div,span,p").forEach((el) => {
+        if (el.childElementCount !== 0) return;
+        if (textValue(el.textContent)) return;
+        const clickable = findClickableParent(el);
+        if (!clickable || !container.contains(clickable)) return;
+        el.textContent = label;
+        labeled += 1;
+      });
+      return labeled;
+    };
+    const labelEmptyButtons = (container, label) => {
+      let labeled = 0;
+      container.querySelectorAll("button,a,[role='button'],[tabindex]").forEach((btn) => {
+        if (btn.childElementCount !== 0) return;
+        if (textValue(btn.textContent)) return;
+        btn.textContent = label;
+        labeled += 1;
+      });
+      return labeled;
+    };
+
+    let labeled = 0;
+    anchorNodes.forEach((node) => {
+      if (labeled) return;
+      let current = node.parentElement;
+      let depth = 0;
+      while (current && current !== document.body && depth < 12 && !labeled) {
+        labeled += labelEmptyButtons(current, fallback);
+        labeled += labelEmptyClickTargets(current, fallback);
+        current = current.parentElement;
+        depth += 1;
+      }
+    });
+
+    if (!labeled) {
+      const root = document.getElementById("root") || document.body;
+      const candidates = [];
+      root.querySelectorAll("button,a,[role='button'],[tabindex]").forEach((btn) => {
+        if (btn.childElementCount !== 0) return;
+        if (textValue(btn.textContent)) return;
+        candidates.push(btn);
+      });
+      if (candidates.length === 1) {
+        candidates[0].textContent = fallback;
+      }
+    }
+  };
+
+  const clearAbortOnNewUser = () => {
+    const userId = readJson("user_id");
+    if (typeof userId === "string" && userId.trim() !== "") {
+      try {
+        localStorage.removeItem(abortFlagKey);
+      } catch {
+        // Ignore
+      }
+    }
+  };
+
+  document.addEventListener(
+    "click",
+    (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const label = normalize(target.textContent);
+      if (label && label === getAbortCta()) setAborted();
+    },
+    true
+  );
+
+  const observer = new MutationObserver(() => {
+    clearAbortOnNewUser();
+    applyAbortMessaging();
+    applyRestartLabelFallback();
+    ensureRestartLabelVisible();
+    hideRestartAfterAbort();
+  });
+
+  observer.observe(document.body, { childList: true, subtree: true });
+  clearAbortOnNewUser();
+  applyAbortMessaging();
+  applyRestartLabelFallback();
+  ensureRestartLabelVisible();
+  hideRestartAfterAbort();
+})();
+</script>
+</body>
+</html>

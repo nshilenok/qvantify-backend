@@ -199,7 +199,10 @@ CREATE TABLE IF NOT EXISTS records (
     role TEXT,    -- 'user' or 'assistant'
     content TEXT,
     topic TEXT,
-    created_at TIMESTAMPTZ DEFAULT now()
+    created_at TIMESTAMPTZ DEFAULT now(),
+    -- Admin annotations (Results Portal)
+    admin_note TEXT,
+    admin_like SMALLINT NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS respondents (
@@ -208,8 +211,46 @@ CREATE TABLE IF NOT EXISTS respondents (
     project TEXT,
     email TEXT,
     consent BOOLEAN, 
-    external_id TEXT
+    external_id TEXT,
+    -- Admin annotations + stored interview analysis (Results Portal)
+    admin_note TEXT,
+    admin_like SMALLINT NOT NULL DEFAULT 0,
+    persona_label TEXT,
+    findings_summary TEXT,
+    analysis_facts TEXT,
+    analysis_sentiment TEXT,
+    analyzed_at TIMESTAMPTZ
 );
+
+-- Project share links (customer read-only portal)
+CREATE TABLE IF NOT EXISTS project_share_links (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    token_enc TEXT,
+    password_enc TEXT,
+    label TEXT,
+    allowed_exports BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    revoked_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ,
+    last_used_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS project_share_links_project_idx ON project_share_links(project);
+CREATE INDEX IF NOT EXISTS project_share_links_revoked_idx ON project_share_links(revoked_at);
+
+-- Share-link login attempts (rate limiting / audit)
+CREATE TABLE IF NOT EXISTS project_share_login_attempts (
+    id BIGSERIAL PRIMARY KEY,
+    share_link_id UUID NOT NULL REFERENCES project_share_links(id) ON DELETE CASCADE,
+    ip TEXT,
+    ok BOOLEAN NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS project_share_login_attempts_link_ip_time_idx ON project_share_login_attempts(share_link_id, ip, created_at);
 
 CREATE TABLE IF NOT EXISTS projects (
     id TEXT PRIMARY KEY,
@@ -220,6 +261,8 @@ CREATE TABLE IF NOT EXISTS projects (
     welcome_message TEXT,
     success_title TEXT,
     success_message TEXT,
+    abort_title TEXT,
+    abort_message TEXT,
     welcome_second_title TEXT,
     welcome_second_message TEXT,
     consent TEXT,
@@ -246,11 +289,19 @@ CREATE TABLE IF NOT EXISTS projects (
     default_prompt TEXT
 );
 
+ALTER TABLE IF EXISTS projects ADD COLUMN IF NOT EXISTS abort_title TEXT;
+ALTER TABLE IF EXISTS projects ADD COLUMN IF NOT EXISTS abort_message TEXT;
+
+UPDATE projects
+SET abort_title = 'Aborted',
+    abort_message = 'You have aborted the interview. Please restart the interview and complete it. If you encounter any problems please reach to our support.'
+WHERE id = 'd0aaae3f-b133-4099-a6fb-9509ed750a24';
+
 CREATE TABLE IF NOT EXISTS topics (
     id TEXT PRIMARY KEY,
     project TEXT,
     system TEXT,
-    lenght INTEGER, -- Note: Typo in code 'lenght'
+    length INTEGER,
     sequence INTEGER,
     topic_type TEXT,
     expiration_strategy TEXT,
@@ -275,7 +326,9 @@ CREATE TABLE IF NOT EXISTS usage_stats (
     topic TEXT,
     api TEXT,
     model TEXT,
-    created_at TIMESTAMPTZ DEFAULT now()
+    created_at TIMESTAMPTZ DEFAULT now(),
+    purpose TEXT NOT NULL DEFAULT 'chat',
+    service TEXT NOT NULL DEFAULT 'core'
 );
 
 CREATE TABLE IF NOT EXISTS interviews (

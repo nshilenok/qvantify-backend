@@ -3,6 +3,7 @@ import os
 import uuid
 
 import httpx
+import pytest
 
 
 BASE_URL = os.environ.get("QVANTIFY_BASE_URL", "http://127.0.0.1:5055").rstrip("/")
@@ -16,15 +17,31 @@ def _headers(**extra):
     return h
 
 
+def _skip_if_db_not_configured():
+    try:
+        r = httpx.get(f"{BASE_URL}/api/health", timeout=10)
+        if r.status_code != 200:
+            pytest.skip("Server health unavailable")
+        data = r.json()
+        if not data.get("db_configured"):
+            pytest.skip("DB not configured (set DATABASE_URL or DB_* env vars)")
+    except Exception:
+        pytest.skip("Server health unavailable")
+
+
 def test_project_config_loads():
+    _skip_if_db_not_configured()
     r = httpx.get(f"{BASE_URL}/api/project/", headers=_headers(), timeout=30)
     assert r.status_code == 200
     data = r.json()
     assert isinstance(data, list) and len(data) == 1
     assert "success_message" in data[0]
+    assert "abort_title" in data[0]
+    assert "abort_message" in data[0]
 
 
 def test_create_respondent_and_initialize_interview():
+    _skip_if_db_not_configured()
     r = httpx.post(
         f"{BASE_URL}/api/respondent/",
         headers=_headers(externalId=EXTERNAL_ID),
@@ -45,6 +62,7 @@ def test_create_respondent_and_initialize_interview():
 
 
 def test_reply_streaming_sse_final_event():
+    _skip_if_db_not_configured()
     # Create a fresh respondent to isolate this test
     r = httpx.post(
         f"{BASE_URL}/api/respondent/",

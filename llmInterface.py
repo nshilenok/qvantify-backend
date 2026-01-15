@@ -30,9 +30,20 @@ class LLM():
 		self.api = self.getApi()
 
 	def getConfig(self):
-		query = "select model,temperature,max_tokens,top_p,api from projects where id=%s"
 		query_params = (self.project,)
-		response = self.DB.query_database_one(query,query_params)
+		response = None
+		max_token_value = None
+		try:
+			query = "select model,temperature,max_tokens,top_p,api from projects where id=%s"
+			response = self.DB.query_database_one(query,query_params)
+			if response:
+				max_token_value = response[2]
+		except Exception as e:
+			logger.warning("Project config missing max_tokens; falling back to max_completion_tokens: %s", str(e))
+			query = "select model,temperature,max_completion_tokens,top_p,api from projects where id=%s"
+			response = self.DB.query_database_one(query,query_params)
+			if response:
+				max_token_value = response[2]
 		default_values = {
 		'model': 'gpt-5.2',
 		'temperature': 1,
@@ -46,7 +57,12 @@ class LLM():
 		'top_p': 1
 		}
 		if response:
-			config = {key: value if value is not None else default_values[key] for key, value in zip(default_values.keys(), response)}
+			config = {
+			'model': response[0] if response[0] is not None else default_values['model'],
+			'temperature': response[1] if response[1] is not None else default_values['temperature'],
+			'max_tokens': max_token_value if max_token_value is not None else default_values['max_tokens'],
+			'top_p': response[3] if response[3] is not None else default_values['top_p']
+			}
 			return config
 		else:
 			return analysis_values
@@ -61,12 +77,15 @@ class LLM():
 			api = "openai"
 		return api
 
-	def getResponseAzure(self,messages,tools=None):
+	def getResponseAzure(self,messages,tools=None,tool_choice=None):
 		config = self.config
 		os.environ["AZURE_OPENAI_API_KEY"] = credentials.azureopenai_key
 		client = AzureOpenAI(api_version="2023-09-01-preview",azure_endpoint="https://qvantify-se.openai.azure.com")
 		if tools:
-			response = client.chat.completions.create(**config,messages=messages,tools=tools)
+			if tool_choice:
+				response = client.chat.completions.create(**config,messages=messages,tools=tools,tool_choice=tool_choice)
+			else:
+				response = client.chat.completions.create(**config,messages=messages,tools=tools)
 		else:
 			response = client.chat.completions.create(**config,messages=messages)
 		logger.debug('==========================Azure Output===========================: %s', response)
@@ -75,7 +94,7 @@ class LLM():
 		return response
 
 
-	def getResponseOpenAI(self,messages,tools=None):
+	def getResponseOpenAI(self,messages,tools=None,tool_choice=None):
 		config = dict(self.config)
 		# OpenAI gpt-5.* models require max_completion_tokens instead of max_tokens.
 		if str(config.get("model", "")).startswith("gpt-5"):
@@ -84,7 +103,10 @@ class LLM():
 		os.environ["OPENAI_API_KEY"] = self.key
 		client = OpenAI() 
 		if tools:
-			response = client.chat.completions.create(**config,messages=messages,tools=tools)
+			if tool_choice:
+				response = client.chat.completions.create(**config,messages=messages,tools=tools,tool_choice=tool_choice)
+			else:
+				response = client.chat.completions.create(**config,messages=messages,tools=tools)
 		else:
 			response = client.chat.completions.create(**config,messages=messages)
 		logger.debug('==========================OpenAI Output===========================: %s', response)
@@ -130,13 +152,13 @@ class LLM():
 		finally:
 			client.close()
 
-	def getResponse(self,messages,tools=None):
+	def getResponse(self,messages,tools=None,tool_choice=None):
 		logger.info('USER %s SENDING THIS TO GPT: %s', getattr(g, "uuid", None), messages)
 		try:
 			if self.api == "openai":
-				return self.getResponseOpenAI(messages,tools)
+				return self.getResponseOpenAI(messages,tools,tool_choice)
 			if self.api == "azure":
-				return self.getResponseAzure(messages,tools)
+				return self.getResponseAzure(messages,tools,tool_choice)
 		except Exception as e:
 			logger.exception('Error in LLM getResponse: %s', str(e))
 			raise

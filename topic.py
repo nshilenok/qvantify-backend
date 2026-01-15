@@ -14,7 +14,7 @@ class topicHandler():
 		self.topic = self.getCurrentTopic()
 
 	def getTopics(self):
-		query = "SELECT id,system,lenght FROM topics WHERE project=%s ORDER by sequence ASC"
+		query = "SELECT id,system,length FROM topics WHERE project=%s ORDER by sequence ASC"
 		query_params = (self.project,)
 		results = self.DB.query_database_all(query,query_params)
 		topic_no = 0

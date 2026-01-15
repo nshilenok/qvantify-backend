@@ -4,6 +4,7 @@ import psycopg2.extras
 from flask import Flask, request, jsonify, g
 from datetime import datetime, timezone, timedelta
 from llmInterface import LLM
+import hmac
 import uuid
 import json
 import credentials
@@ -59,6 +60,16 @@ def answerFirstQuestion(answer,ChatGpt,topics):
 
 
 app = Flask(__name__)
+
+def _require_internal_key():
+	expected = (os.environ.get("INTERNAL_API_KEY") or "").strip()
+	if not expected:
+		return jsonify(error="Not enabled"), 404
+
+	provided = (request.args.get("key") or "").strip()
+	if not provided or not hmac.compare_digest(provided, expected):
+		return jsonify(error="Unauthorized"), 401
+	return None
 
 @app.before_request
 def get_db():
@@ -154,15 +165,15 @@ def create_respondent():
 @app.route('/api/project/', methods=['GET'])
 def get_project():
 	project = request.headers.get('projectId')
-	query = "SELECT name,logo,colour,welcome_title,welcome_message,success_title,success_message,welcome_second_title,welcome_second_message,consent,cta_next,cta_reply,cta_abort,cta_restart,question_title,answer_title,answer_placeholder,loading,collect_email,email_title,email_placeholder,consent_link,skip_welcome,dark_mode,inline_consent from projects where id=%s"
+	query = "SELECT name,logo,colour,welcome_title,welcome_message,success_title,success_message,abort_title,abort_message,welcome_second_title,welcome_second_message,consent,cta_next,cta_reply,cta_abort,cta_restart,question_title,answer_title,answer_placeholder,loading,collect_email,email_title,email_placeholder,consent_link,skip_welcome,dark_mode,inline_consent from projects where id=%s"
 	query_params = (project,)
 	project_data = g.db.query_database_one(query,query_params)
 	if project_data:
 		labels = [
 		"name", "logo", "colour", "welcome_title", "welcome_message",
-		"success_title", "success_message", "welcome_second_title",
-		"welcome_second_message", "consent", "cta_next", "cta_reply",
-		"cta_abort", "cta_restart", "question_title", "answer_title",
+		"success_title", "success_message", "abort_title", "abort_message",
+		"welcome_second_title", "welcome_second_message", "consent", "cta_next",
+		"cta_reply", "cta_abort", "cta_restart", "question_title", "answer_title",
 		"answer_placeholder", "loading", "collect_email", "email_title",
 		"email_placeholder", "consent_link", "skip_welcome", "dark_mode", "inline_consent"
 		]
@@ -186,13 +197,22 @@ def findClose():
 
 @app.route('/api/heartbeat/', methods=['GET'])
 def heartbeat_launch():
-	key = request.args.get('key')
-	if key == '3yTgJUQnPjs4L':
-		heartbeat()
-		return jsonify(status=True)
+	err = _require_internal_key()
+	if err:
+		return err
+
+	if "heartbeat" not in globals():
+		return jsonify(error="Heartbeat not available on this platform"), 501
+
+	heartbeat()
+	return jsonify(status=True)
 
 @app.route('/api/debug/', methods=['GET'])
 def debug_endpoint():
+	err = _require_internal_key()
+	if err:
+		return err
+
 	try:
 		project = request.headers.get('projectId')
 		user_uuid = request.headers.get('uuid')

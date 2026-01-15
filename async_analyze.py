@@ -15,7 +15,7 @@ db = DB(credentials.db_config)
 
 def get_interview(uuid,project):
 	records = db.get_records(uuid,project)
-	print(f"Interview lenght: {len(records)}, uuid: {uuid}")
+	print(f"Interview length: {len(records)}, uuid: {uuid}")
 	if len(records) < 4:
 		print("Skipping")
 		return None
