@@ -88,7 +88,7 @@ This repo uses **manual promotion** via branches:
 4. Merge `staging` → `main` to deploy production
 
 Current staging preview URL (latest `staging` deploy):
-- `https://qvantify-fullstack-lx3d698mu-nikita-shilenoks-projects.vercel.app`
+- `https://qvantify-fullstack-72o6q47f3-nikita-shilenoks-projects.vercel.app`
 
 Optional: install a pre-push hook to enforce local checks:
 
