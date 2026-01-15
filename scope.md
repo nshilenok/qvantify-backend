@@ -14,8 +14,11 @@ This file is the **source of truth** for what we expect to work and how we test 
   - `POST /api/reply/` (streaming SSE over fetch) when client sends `Accept: text/event-stream` or JSON `{stream:true}`:
     - streams `{"type":"delta","delta":"..."}` events
     - ends with `{"type":"final","response":"...","status":"open|closed","answers":[...]}`.
-- **OpenAI gpt-5.***: responses use a fixed default token budget in code (mapped to `max_completion_tokens`).
+- **OpenAI gpt-5.***: `max_tokens` is translated to `max_completion_tokens` to avoid 400 errors.
 - **Topic switching**: `topic.py` advances topics using `topics` + `topics_log`.
+- **Session inactivity auto-close**: open sessions are marked closed when no **user input** is received for 10 minutes (checks `records.role='user'` and updates the latest `topics_log` entry). Configure with `SESSION_INACTIVITY_MINUTES`.
+- **Abort behavior**: clicking Abort sends the user to the Success screen and does not offer a restart CTA for that session.
+- **Abort copy override**: if a project sets `abort_title` and/or `abort_message`, those values replace the Success title/message when the user aborted.
 
 ### 2. Health & Bring-up Diagnostics
 - **Health endpoint**: `GET /api/health` returns:
@@ -47,16 +50,23 @@ This file is the **source of truth** for what we expect to work and how we test 
   - `auto` × 25 (one per question)
   - Each topic’s `system` stores: `<question> + "\\n\\nCurrent Theme: <group theme>"`
   - Topic switching happens when the model calls the tool `interview_topic_over({"status":"done"})`
+- **Abort copy**:
+  - `abort_title`: `Aborted`
+  - `abort_message`: `You have aborted the interview. Please restart the interview and complete it. If you encounter any problems please reach to our support.`
 
 ### 4. Regression Test Matrix (API + FE)
 - **API (pytest)**:
   - `/api/project/`, `/api/respondent/`, `/api/interview/`, `/api/reply/` (JSON) happy path
   - `/api/reply/` streaming path: receives multiple deltas and a final event
   - Wrong/missing `interview` id behavior
-- **FE (Playwright)**:
-  - Desktop + mobile viewports
-  - Full journey: enter via URL with `external_id`, chat across topic types, end on Success screen
-  - Alternative scenarios: refresh mid-session, restart session, “existing” behavior as defined (new respondent if only external_id repeats)
+- **FE (Playwright, live backend)**:
+  - Targets `QVANTIFY_E2E_BASE_URL` (production/staging), no API mocking
+  - Interview flow: load project, create respondent, initialize interview, send reply, refresh mid-session
+  - Abort flow: clicking Abort shows `abort_title`/`abort_message` when provided and hides restart CTA
+  - Results share: share login endpoint must **not** return `Missing SECRET_KEY` (live health check)
+  - Runs on desktop + mobile viewports
+- **FE (Playwright, mocked UI contract)**:
+  - Results Portal admin/share tests run only on local static build (mocked API responses)
 
 ### 5. Results Portal (Admin + Customer Share Links)
 
@@ -71,6 +81,7 @@ This file is the **source of truth** for what we expect to work and how we test 
   - `GET /api/admin/projects/<project_id>/sessions/<respondent_id>?include_system=1` → transcript + metadata
   - `PUT /api/admin/projects/<project_id>/sessions/<respondent_id>/annotation` → session note + like/dislike
   - `PUT /api/admin/projects/<project_id>/records/<record_id>/annotation` → message note + like/dislike
+  - `POST /api/admin/projects/<project_id>/sessions/delete` → delete sessions by ids or by filters (supports select-all with exclusions)
   - `GET|POST /api/admin/projects/<project_id>/share_links` → create/list customer links (returns password only at creation)
   - `POST /api/admin/projects/<project_id>/share_links/<link_id>/revoke` → revoke link
   - `GET /api/admin/projects/<project_id>/export?...` → export filtered matches (CSV/JSON)
@@ -80,19 +91,55 @@ This file is the **source of truth** for what we expect to work and how we test 
 - **Entry point**: `Share` button in the project results header.
 - **Modal content**:
   - Toggle to **Enable sharing** (creates an active share link + password).
-  - When enabled: displays **Share URL** and **Password** in read-only fields.
-  - **Copy URL & Password** action (copies both values in one click).
+  - When enabled: displays **Local link**, **Web link**, and **Password** in read-only fields.
+- **Copy Local**, **Copy Web**, and **Copy Password** actions (each copies its field).
   - **Regenerate link & password** action (revokes current, creates new).
   - **Disable sharing** (toggle off) revokes any active share links.
 - **Behavior**:
   - No label input required (share links are standard, one active at a time).
   - Only active link is shown in the modal; previous links are revoked.
 
+#### 5.1.2 Token Usage (Admin-only)
+- **Purpose**: summarize LLM token consumption per project for billing/ops insight.
+- **API**: `GET /api/admin/projects/<project_id>/usage`
+  - Returns `total` tokens and per-service totals.
+  - Returns USD estimate using `TOKEN_USD_PER_1K` rate (default `$0.01`).
+  - Service mapping:
+    - `core` → **Interviews**
+    - `results_portal` → **Summary**
+- **UI**: project page shows a **Token usage** card:
+  - Total tokens (compact formatting: `1.2k`, `2.3M`)
+  - USD estimate with the current rate shown
+  - Per-service tokens for Interviews + Summary
+  - Mini stacked bar chart with percentage split
+  - Empty state: shows “No token usage recorded” when totals are zero.
+
+#### 5.1.3 Project Properties (Admin-only)
+- **UI**: project page shows a **Project properties** panel listing all project config fields (UI copy + model config).
+- **Boolean badges**: true/false fields use clear visual badges, including a dedicated **Welcome screen** status.
+
+#### 5.1.4 Interview Analysis (Auto)
+- **Auto-analysis trigger**: runs when a session closes (latest topic status is closed) or via admin stale analysis.
+- **Persona label**: 2-4 words, vivid but professional.
+- **Findings summary**: 2-3 sentences, narrative and specific (avoid “this interview” phrasing).
+- **Skip short sessions**: analysis is skipped when user responses total fewer than **5 words**.
+
+#### 5.1.5 Interview Deletion (Admin-only)
+- **Selection model**:
+  - Admin can select individual sessions from the left sidebar.
+  - **Select all on page** toggles the current list view.
+  - **Select all matching filters** selects every session across pages for the current filter set.
+  - Optional exclusions are supported after selecting all (deselect any row).
+- **Bulk delete action**:
+  - UI shows **Delete X selected interviews** in the project header.
+  - Confirmation modal summarizes the count and warns the action is permanent.
+  - Deletion removes respondents, records, topic logs, interview summaries, and usage rows.
+
 #### 5.2 Customer View (Read-only Share Link)
 - **URL**: `/results/share/<token>`
 - **Auth model**:
   - Customer enters a password once; server sets a **signed httpOnly cookie** (requires `SECRET_KEY`).
-  - Customer can **view** results and **export**, but cannot edit anything.
+  - Customer can **view** results, **export**, and add **session-level like/dislike + notes**.
 - **Share APIs**:
   - `GET /api/share/<token>/info` → project name (for login UX)
   - `POST /api/share/<token>/login` → password gate
@@ -102,20 +149,31 @@ This file is the **source of truth** for what we expect to work and how we test 
 
 #### 5.3 UI Expectations (per project)
 - **Theme**: light UI, clean white/gray surfaces, subtle borders, high readability.
-- **Header**: logo-only branding using Qvantify SVG; no title/subname.
+- **Primary accent**: brand purple (#684EAD) for highlights, focus, and key CTAs.
+- **Header**: logo-only branding using Qvantify SVG in brand purple for visibility on light backgrounds; no title/subname.
 - **Left sidebar**: sessions grouped by day, sorted latest, quick info (persona label, time, answer count, external_id). Show session/respondent ID with copy.
-- **Search**: single global search bar (transcripts + persona + external_id + session id + notes).
+- **Session sorting**: sessions can be ordered by latest/oldest activity, responses count, and external_id A–Z/Z–A.
+- **Status badges**: sessions show **Open/Closed** state in the sidebar and in the session header.
+- **Projects list**: each project card shows a copyable interview link with a test `external_id` baked into the URL.
+- **Project header**: results page shows copyable Project ID and participation link (`/?interview=<project_id>&external_id=sample@user.com`).
+- **Search + filters layout**: full-width panel above session list + transcript (admin + share).
+- **Search**: full-width search input above sessions + transcripts (searches transcripts, persona, external_id, session id, notes).
+- **Design preview**: `/results/sample` is a static UI appetizer page to validate the minimal light direction (no data fetching).
 - **Filters (pro builder)**:
-  - external_id operators (exists / does not exist / equals / not equals / contains / not contains)
-  - Rating (like / neutral / dislike)
-  - Notes contains
-  - Date range (after/before) based on last activity timestamp
-  - Any filter should **drill down** results (no highlight-only behavior)
-- **Match snippets**: when search is active, show matched text snippet in the session list with a tooltip.
+  - Filter rows start with a **property selector**, then show only applicable operators/inputs.
+  - Text operators (External ID + Note): exists / not exists / equals / not equals / contains / not contains.
+  - Rating: is (liked / neutral / disliked).
+  - Date operators: after / before / between / last 7 days / last 30 days / this week / this month.
+  - Responses count operators: at least / at most / between / equals.
+  - Any filter should **drill down** results (no highlight-only behavior).
+- **Match snippets**: show matched snippet in the session list when search is active.
 - **Body**: messenger-style transcript; system prompts hidden by default (admin can toggle).
+- **Transcript cleanup**: empty/blank messages are suppressed (no placeholder bubbles).
 - **Actions**:
   - **Session-level** like/dislike only
   - **Notes** auto-save live with visible status
+  - **Transcript copy**: hover any message bubble to reveal a Copy action
+  - **Narrative summary copy**: hover the summary text to reveal Copy
   - No per-message actions
 - **Export**:
   - Modal confirmation with counts for **Filtered** and **All**
@@ -130,14 +188,21 @@ This file is the **source of truth** for what we expect to work and how we test 
   - (Optional) `INTERNAL_API_KEY` set (enables `/api/debug` + `/api/heartbeat`)
 - Tests:
   - `GET /results/admin` serves the Results Portal SPA
+  - `GET /results/sample` serves the design preview page
   - Admin can list projects and open a project results page
-  - Filters work: search, external_id ops, date range
+- Project results header shows copy buttons for Project ID + participation link
+  - Token usage card shows total + interviews + summary and chart
+- Search works: global search input filters sessions + match snippets
+- Filters work: property selector + operators (text, rating, date, responses)
   - Transcript viewer hides system prompts by default; toggle shows them
   - Admin can edit: session note + like/dislike; message note + like/dislike
+- Admin can select sessions and delete them (single, page, or all matching filters)
+- Session like/dislike updates instantly and confirms save with blink
   - Admin can create a share link, copy URL + password
   - Admin can disable sharing (active link revoked)
   - Admin can regenerate link + password in the share modal
   - Customer can login via share URL, view results read-only, export CSV
+- Customer share view: notes autosave works and no client-side runtime errors
 
 ## Technical Architecture
 
@@ -178,12 +243,8 @@ This file is the **source of truth** for what we expect to work and how we test 
 - Set `DATABASE_URL` and `DB_SSLMODE=require` in Railway variables.
 
 ### C. OpenAI 400 errors
-- Symptom: `/api/reply/` returns 500 with an unsupported token-parameter error (verify OpenAI config and token budget mapping).
+- Symptom: `/api/reply/` returns 500 and logs show `Unsupported parameter: 'max_tokens'`.
 - Fix: ensure `max_completion_tokens` is used for `gpt-5.*` models (already handled in `llmInterface.py`).
-
-### D. One-command recovery check
-- Script: `./scripts/health-check.sh`
-- Uses: `QVANTIFY_BASE_URL`, `QVANTIFY_RAILWAY_URL`, `QVANTIFY_PROJECT_ID`
 
 ## Test Checklist (Local)
 
