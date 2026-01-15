@@ -50,7 +50,7 @@ Status markers above reflect intended behavior, not a live guarantee.
 ## Environment Variables
 
 Required (core app):
-- **Database**: set either `DATABASE_URL` **or** `DB_HOST` + `DB_PASSWORD` (and optionally `DB_NAME`/`DB_USER`/`DB_PORT`). See `env.example`.
+- **Database**: set either `DATABASE_URL` **or** `DB_HOST` + `DB_PASSWORD` (and optionally `DB_NAME`/`DB_USER`/`DB_PORT`) in `env.local`.
 - **AI**: `OPENAI_API_KEY` (only if you want the LLM features enabled).
 
 Required (Results Portal share links):
@@ -78,6 +78,21 @@ This repo includes a `Procfile` + `start.py`:
 
 For a step-by-step redeploy checklist (Railway + Supabase), see `deployment_guide.md`.
 
+## Release Workflow (Staging → Production)
+
+This repo uses **manual promotion** via branches:
+
+1. Run local checks: `./scripts/local-release-checks.sh`
+2. Push to `staging` (staging auto-deploys from GitHub)
+3. Verify staging (see `deployment_guide.md`)
+4. Merge `staging` → `main` to deploy production
+
+Optional: install a pre-push hook to enforce local checks:
+
+```bash
+./scripts/install-git-hooks.sh
+```
+
 ## Quick Health Check
 
 Run a single script to validate API health + DB connectivity:
@@ -96,7 +111,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# Create env.local from env.example and fill secrets locally (never commit)
+# Create env.local and fill secrets locally (never commit)
 # Then run:
 python server.py
 ```
@@ -118,10 +133,10 @@ npm run build
 ```
 
 ### Backend routes
-- **Admin UI**: `/results/admin` (local-only)
+- **Admin UI**: `/results/projects` (local-only)
 - **Customer UI**: `/results/share/<token>` (password-gated)
 
-See `env.example` for required vars:
+See `env.local` for required vars (never commit):
 - `ADMIN_LOCAL_KEY` (enables local admin)
 - `SECRET_KEY` (required for share-link login sessions)
 - `SHARE_LINK_ENC_KEY` (required to encrypt/decrypt share link token + password)

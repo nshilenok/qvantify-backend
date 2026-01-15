@@ -107,6 +107,34 @@ export type AdminProjectDetail = {
   api?: string | null;
   default_prompt?: string | null;
 };
+export interface AdminTopic {
+  id: string | null;
+  project: string | null;
+  system: string | null;
+  length: number | null;
+  sequence: number | null;
+  topic_type: string | null;
+  expiration_strategy: string | null;
+  defined_answers: unknown;
+}
+
+export interface AdminTopicLog {
+  id: number | null;
+  topic_id: string | null;
+  user_id: string | null;
+  started_at: string | null;
+  status: number | null;
+  responses: number | null;
+}
+
+export interface AdminTopicsResponse {
+  topics: AdminTopic[];
+}
+
+export interface AdminTopicLogsResponse {
+  logs: AdminTopicLog[];
+}
+
 export type AdminProjectResponse = { project: AdminProjectDetail };
 export type ShareLink = {
   id: string;
@@ -144,6 +172,7 @@ export type SessionDetail = {
     role: "user" | "assistant" | "system";
     content: string;
     topic: string | null;
+    topic_label?: string | null;
     admin_like?: number;
     admin_note?: string | null;
   }>;
@@ -151,15 +180,23 @@ export type SessionDetail = {
 };
 
 export async function adminListProjects() {
-  return apiFetch<AdminProjectsResponse>("/api/admin/projects");
+  return apiFetch<AdminProjectsResponse>("/api/projects");
 }
 
 export async function adminGetProject(projectId: string) {
-  return apiFetch<AdminProjectResponse>(`/api/admin/projects/${encodeURIComponent(projectId)}`);
+  return apiFetch<AdminProjectResponse>(`/api/projects/${encodeURIComponent(projectId)}`);
+}
+
+export async function adminListTopics(projectId: string) {
+  return apiFetch<AdminTopicsResponse>(`/api/projects/${encodeURIComponent(projectId)}/topics`);
+}
+
+export async function adminListTopicLogs(projectId: string) {
+  return apiFetch<AdminTopicLogsResponse>(`/api/projects/${encodeURIComponent(projectId)}/topics_log`);
 }
 
 export async function adminGetProjectUsage(projectId: string) {
-  return apiFetch<AdminProjectUsageResponse>(`/api/admin/projects/${encodeURIComponent(projectId)}/usage`);
+  return apiFetch<AdminProjectUsageResponse>(`/api/projects/${encodeURIComponent(projectId)}/usage`);
 }
 
 export async function adminListSessions(projectId: string, query: Record<string, string | number | undefined>) {
@@ -168,14 +205,14 @@ export async function adminListSessions(projectId: string, query: Record<string,
     if (v === undefined || v === null || v === "") return;
     qs.set(k, String(v));
   });
-  return apiFetch<SessionsResponse>(`/api/admin/projects/${encodeURIComponent(projectId)}/sessions?${qs.toString()}`);
+  return apiFetch<SessionsResponse>(`/api/projects/${encodeURIComponent(projectId)}/sessions?${qs.toString()}`);
 }
 
 export async function adminGetSession(projectId: string, respondentId: string, includeSystem: boolean) {
   const qs = new URLSearchParams();
   if (includeSystem) qs.set("include_system", "1");
   return apiFetch<SessionDetail>(
-    `/api/admin/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(respondentId)}?${qs.toString()}`
+    `/api/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(respondentId)}?${qs.toString()}`
   );
 }
 
@@ -184,7 +221,7 @@ export async function adminUpdateSessionAnnotation(
   respondentId: string,
   patch: { admin_note?: string | null; admin_like?: -1 | 0 | 1 }
 ) {
-  return apiFetch<{ ok: true }>(`/api/admin/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(respondentId)}/annotation`, {
+  return apiFetch<{ ok: true }>(`/api/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(respondentId)}/annotation`, {
     method: "PUT",
     body: JSON.stringify(patch),
   });
@@ -195,7 +232,7 @@ export async function adminUpdateRecordAnnotation(
   recordId: string,
   patch: { admin_note?: string | null; admin_like?: -1 | 0 | 1 }
 ) {
-  return apiFetch<{ ok: true }>(`/api/admin/projects/${encodeURIComponent(projectId)}/records/${encodeURIComponent(recordId)}/annotation`, {
+  return apiFetch<{ ok: true }>(`/api/projects/${encodeURIComponent(projectId)}/records/${encodeURIComponent(recordId)}/annotation`, {
     method: "PUT",
     body: JSON.stringify(patch),
   });
@@ -211,7 +248,7 @@ export async function adminDeleteSessions(
   }
 ) {
   return apiFetch<{ ok: true; deleted: number }>(
-    `/api/admin/projects/${encodeURIComponent(projectId)}/sessions/delete`,
+    `/api/projects/${encodeURIComponent(projectId)}/sessions/delete`,
     {
       method: "POST",
       body: JSON.stringify(payload),
@@ -222,18 +259,18 @@ export async function adminDeleteSessions(
 export async function adminAnalyzeStale(projectId: string, inactiveMinutes = 10) {
   const qs = new URLSearchParams({ inactive_minutes: String(inactiveMinutes) });
   return apiFetch<{ ok: true; analyzed: number; skipped: number }>(
-    `/api/admin/projects/${encodeURIComponent(projectId)}/analyze_stale?${qs.toString()}`,
+    `/api/projects/${encodeURIComponent(projectId)}/analyze_stale?${qs.toString()}`,
     { method: "POST" }
   );
 }
 
 export async function adminListShareLinks(projectId: string) {
-  return apiFetch<{ links: ShareLink[] }>(`/api/admin/projects/${encodeURIComponent(projectId)}/share_links`);
+  return apiFetch<{ links: ShareLink[] }>(`/api/projects/${encodeURIComponent(projectId)}/share_links`);
 }
 
 export async function adminCreateShareLink(projectId: string, payload: { label?: string | null }) {
   return apiFetch<{ id: string; share_url: string; share_path: string; password: string }>(
-    `/api/admin/projects/${encodeURIComponent(projectId)}/share_links`,
+    `/api/projects/${encodeURIComponent(projectId)}/share_links`,
     {
       method: "POST",
       body: JSON.stringify(payload),
@@ -242,7 +279,7 @@ export async function adminCreateShareLink(projectId: string, payload: { label?:
 }
 
 export async function adminRevokeShareLink(projectId: string, linkId: string) {
-  return apiFetch<{ ok: true }>(`/api/admin/projects/${encodeURIComponent(projectId)}/share_links/${encodeURIComponent(linkId)}/revoke`, {
+  return apiFetch<{ ok: true }>(`/api/projects/${encodeURIComponent(projectId)}/share_links/${encodeURIComponent(linkId)}/revoke`, {
     method: "POST",
   });
 }

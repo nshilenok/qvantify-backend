@@ -7,10 +7,14 @@ import {
   adminGetSession,
   adminListSessions,
   adminListShareLinks,
+  adminListTopics,
+  adminListTopicLogs,
   adminCreateShareLink,
   adminRevokeShareLink,
   adminUpdateSessionAnnotation,
   adminDeleteSessions,
+  type AdminTopic,
+  type AdminTopicLog,
   type SessionListItem,
   type ShareLink,
 } from "@/lib/api";
@@ -18,7 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
 import { Avatar, RoleAvatar } from "@/components/ui/avatar";
-import { SkeletonSessionItem, SkeletonMessage } from "@/components/ui/skeleton";
+import { Skeleton, SkeletonSessionItem, SkeletonMessage } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
@@ -85,6 +89,8 @@ export function AdminProjectPage() {
   const { projectId } = useParams({ from: "/admin/projects/$projectId" });
 
   const [search, setSearch] = React.useState("");
+  const [topicSearch, setTopicSearch] = React.useState("");
+  const [topicLogSearch, setTopicLogSearch] = React.useState("");
   const [sortKey, setSortKey] = React.useState("latest");
   const [filterRows, setFilterRows] = React.useState<FilterRow[]>([
     { id: "external_id", field: "external_id", op: "contains", value: "" },
@@ -104,6 +110,7 @@ export function AdminProjectPage() {
   const [likeStatus, setLikeStatus] = React.useState<"idle" | "saving" | "saved" | "error">("idle");
   const [likeBlinkKey, setLikeBlinkKey] = React.useState(0);
   const [noteStatus, setNoteStatus] = React.useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [detailModal, setDetailModal] = React.useState<{ title: string; content: string } | null>(null);
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
   const [selectAllMatching, setSelectAllMatching] = React.useState(false);
   const [excludedIds, setExcludedIds] = React.useState<Set<string>>(new Set());
@@ -128,6 +135,16 @@ export function AdminProjectPage() {
   const shareLinksQ = useQuery({
     queryKey: ["admin", "share-links", projectId],
     queryFn: () => adminListShareLinks(projectId),
+  });
+
+  const topicsQ = useQuery({
+    queryKey: ["admin", "topics", projectId],
+    queryFn: () => adminListTopics(projectId),
+  });
+
+  const topicLogsQ = useQuery({
+    queryKey: ["admin", "topics-log", projectId],
+    queryFn: () => adminListTopicLogs(projectId),
   });
 
   const toDateInputValue = React.useCallback((date: Date) => {
@@ -345,6 +362,42 @@ export function AdminProjectPage() {
   const selected = detailQ.data?.session;
   const records = detailQ.data?.records || [];
   const displayRecords = records.filter((record) => (record.content ?? "").trim().length > 0);
+  interface TranscriptTopicItem {
+    type: "topic";
+    id: string;
+    label: string;
+  }
+  interface TranscriptMessageItem {
+    type: "message";
+    id: string;
+    record: (typeof displayRecords)[number];
+  }
+  type TranscriptItem = TranscriptTopicItem | TranscriptMessageItem;
+  const transcriptItems = React.useMemo<TranscriptItem[]>(() => {
+    const items: TranscriptItem[] = [];
+    const topicLabels = new Map<string, string>();
+    let lastTopicKey = "";
+    for (const record of displayRecords) {
+      const topicId = String(record.topic ?? "").trim();
+      const explicitLabel = String(record.topic_label ?? "").trim();
+      const fallbackLabel = String(record.content ?? "").trim();
+      if (topicId) {
+        if (explicitLabel) {
+          topicLabels.set(topicId, explicitLabel);
+        } else if (!topicLabels.has(topicId) && record.role === "assistant" && fallbackLabel) {
+          topicLabels.set(topicId, fallbackLabel);
+        }
+      }
+      const resolvedLabel = explicitLabel || (topicId ? topicLabels.get(topicId) : "");
+      const topicKey = topicId || resolvedLabel || "";
+      if (resolvedLabel && topicKey !== lastTopicKey) {
+        items.push({ type: "topic", id: `topic-${record.id}`, label: resolvedLabel });
+        lastTopicKey = topicKey;
+      }
+      items.push({ type: "message", id: record.id, record });
+    }
+    return items;
+  }, [displayRecords]);
   const displaySessions = React.useMemo(() => {
     if (!listQ.data?.sessions) return [];
     if (!selectedId || optimisticLike === null) return listQ.data.sessions;
@@ -706,6 +759,26 @@ export function AdminProjectPage() {
     return String(value);
   };
 
+  const formatJsonValue = (value: unknown) => {
+    if (value === null || value === undefined || value === "") return "";
+    if (typeof value === "string") return value;
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return String(value);
+    }
+  };
+
+  const truncateText = (value: string, max = 120) => {
+    if (!value) return "";
+    return value.length > max ? `${value.slice(0, max)}…` : value;
+  };
+
+  const openDetailModal = (title: string, content: string) => {
+    if (!content) return;
+    setDetailModal({ title, content });
+  };
+
   const formatBoolean = (value: boolean | null | undefined, invert = false) => {
     if (value === null || value === undefined) {
       return { label: "—", className: "bg-zinc-100 text-[#111827]" };
@@ -715,6 +788,48 @@ export function AdminProjectPage() {
       ? { label: "On", className: "bg-emerald-50 text-emerald-700" }
       : { label: "Off", className: "bg-zinc-100 text-[#111827]" };
   };
+
+  const topics = topicsQ.data?.topics ?? [];
+  const topicLogs = topicLogsQ.data?.logs ?? [];
+  const filteredTopics = React.useMemo(() => {
+    const term = topicSearch.trim().toLowerCase();
+    if (!term) return topics;
+    return topics.filter((topic: AdminTopic) => {
+      const haystack = [
+        topic.id,
+        topic.project,
+        topic.system,
+        topic.topic_type,
+        topic.expiration_strategy,
+        topic.length,
+        topic.sequence,
+        formatJsonValue(topic.defined_answers),
+      ]
+        .filter((value) => value !== null && value !== undefined && value !== "")
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(term);
+    });
+  }, [formatJsonValue, topicSearch, topics]);
+
+  const filteredTopicLogs = React.useMemo(() => {
+    const term = topicLogSearch.trim().toLowerCase();
+    if (!term) return topicLogs;
+    return topicLogs.filter((log: AdminTopicLog) => {
+      const haystack = [
+        log.id,
+        log.topic_id,
+        log.user_id,
+        log.started_at,
+        log.status,
+        log.responses,
+      ]
+        .filter((value) => value !== null && value !== undefined && value !== "")
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(term);
+    });
+  }, [topicLogSearch, topicLogs]);
   const usedFields = new Set(filterRows.map((row) => row.field));
   const canAddFilters = filterRows.length < fieldOptions.length;
   const deleteButtonLabel =
@@ -870,16 +985,6 @@ export function AdminProjectPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => setDeleteModalOpen(true)}
-              disabled={selectedCount === 0 || deleteSessionsM.isPending}
-              className="flex items-center gap-2 rounded-full border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 shadow-[var(--shadow-sm)] hover:bg-red-100 disabled:opacity-50"
-            >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 7h12m-1 0l-1 12a2 2 0 01-2 2H8a2 2 0 01-2-2L5 7m3-3h4a2 2 0 012 2v1H6V6a2 2 0 012-2z" />
-              </svg>
-              {deleteButtonLabel}
-            </button>
             <button
               onClick={() => setShareModalOpen(true)}
               className="flex items-center gap-2 rounded-full bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white shadow-[var(--shadow-lg)]"
@@ -1221,6 +1326,25 @@ export function AdminProjectPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog
+        open={!!detailModal}
+        onOpenChange={(open) => {
+          if (!open) setDetailModal(null);
+        }}
+      >
+        <DialogContent className="bg-[var(--bg-primary)] border border-[var(--border-default)] max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="text-[var(--text-primary)]">{detailModal?.title || "Details"}</DialogTitle>
+            <DialogDescription className="text-[var(--text-muted)]">
+              Full content from the topics table.
+            </DialogDescription>
+          </DialogHeader>
+          <pre className="mt-3 max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-xl border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4 text-xs text-[var(--text-secondary)]">
+            {detailModal?.content || "—"}
+          </pre>
+        </DialogContent>
+      </Dialog>
+
       <div className="mb-6 rounded-3xl glass-card p-5">
         <div className="flex flex-col gap-4">
           <div>
@@ -1397,10 +1521,24 @@ export function AdminProjectPage() {
           {/* Sessions List */}
           <div className="glass-card rounded-3xl overflow-hidden">
             <div className="p-4 border-b border-[var(--border-default)]">
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="text-sm font-semibold text-[var(--text-primary)]">Sessions</div>
-                <div className="text-xs text-[var(--text-muted)]">
-                  {selectedCount > 0 ? `${selectedCount} selected` : "No selection"}
+                <div className="flex items-center gap-3 text-xs">
+                  <span className="text-[var(--text-muted)]">
+                    {selectedCount > 0 ? `${selectedCount} selected` : "No selection"}
+                  </span>
+                  {selectedCount > 0 && (
+                    <button
+                      onClick={() => setDeleteModalOpen(true)}
+                      disabled={deleteSessionsM.isPending}
+                      className="flex items-center gap-2 rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-[11px] font-semibold text-red-700 shadow-[var(--shadow-sm)] hover:bg-red-100 disabled:opacity-50"
+                    >
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 7h12m-1 0l-1 12a2 2 0 01-2 2H8a2 2 0 01-2-2L5 7m3-3h4a2 2 0 012 2v1H6V6a2 2 0 012-2z" />
+                      </svg>
+                      {deleteButtonLabel}
+                    </button>
+                  )}
                 </div>
               </div>
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--text-muted)]">
@@ -1503,249 +1641,457 @@ export function AdminProjectPage() {
 
         {/* Main Content */}
         <div className="lg:col-span-8">
-          <div className="glass-card rounded-3xl overflow-hidden min-h-[600px]">
-            {!selectedId && (
-              <div className="h-full flex items-center justify-center p-12">
-                <div className="text-center">
-                  <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--bg-surface)]">
-                    <svg className="h-8 w-8 text-[var(--text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                    </svg>
+          <div className="space-y-6">
+            <div className="glass-card rounded-3xl overflow-hidden min-h-[600px]">
+              {!selectedId && (
+                <div className="h-full flex items-center justify-center p-12">
+                  <div className="text-center">
+                    <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--bg-surface)]">
+                      <svg className="h-8 w-8 text-[var(--text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                      </svg>
+                    </div>
+                    <div className="text-sm text-[var(--text-muted)]">Select a session to view transcript</div>
                   </div>
-                  <div className="text-sm text-[var(--text-muted)]">Select a session to view transcript</div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {selectedId && detailQ.isLoading && (
-              <div className="p-6 space-y-4">
-                <SkeletonMessage align="left" />
-                <SkeletonMessage align="right" />
-                <SkeletonMessage align="left" />
-              </div>
-            )}
+              {selectedId && detailQ.isLoading && (
+                <div className="p-6 space-y-4">
+                  <SkeletonMessage align="left" />
+                  <SkeletonMessage align="right" />
+                  <SkeletonMessage align="left" />
+                </div>
+              )}
 
-            {detailQ.error && (
-              <div className="p-6 text-red-400">{(detailQ.error as Error).message}</div>
-            )}
+              {detailQ.error && (
+                <div className="p-6 text-red-400">{(detailQ.error as Error).message}</div>
+              )}
 
-            {selected && (
-              <div className="flex flex-col h-full">
-                {/* Session Header */}
-                <div className="p-6 border-b border-[var(--border-default)] bg-[var(--bg-primary)]">
-                  <div className="flex flex-col gap-4">
-                    <div className="flex flex-wrap items-start justify-between gap-4">
-                      <div className="flex items-start gap-4">
-                        <Avatar name={selected.persona_label} size="lg" />
-                        <div>
-                          <h2 className="text-lg font-semibold text-[var(--text-primary)]">
-                            {selected.persona_label || "Session"}
-                          </h2>
-                          <div className="mt-2 grid gap-1 text-xs text-[var(--text-muted)]">
-                            <div>
-                              Respondent ID: <code className="font-mono">{selected.id}</code>{" "}
-                              <button onClick={() => copyText(selected.id)} className="text-[var(--brand-primary)]">Copy</button>
-                            </div>
-                            <div>
-                              External ID: <code className="font-mono">{selected.external_id || "—"}</code>
-                            </div>
-                            <div>
-                              Email: <code className="font-mono">{selected.email || "—"}</code>
-                            </div>
-                            <div>
-                              Consent: <span className="font-medium text-[var(--text-secondary)]">{selected.consent === null || selected.consent === undefined ? "—" : selected.consent ? "Yes" : "No"}</span>
+              {selected && (
+                <div className="flex flex-col h-full">
+                  {/* Session Header */}
+                  <div className="p-6 border-b border-[var(--border-default)] bg-[var(--bg-primary)]">
+                    <div className="flex flex-col gap-4">
+                      <div className="flex flex-wrap items-start justify-between gap-4">
+                        <div className="flex items-start gap-4">
+                          <Avatar name={selected.persona_label} size="lg" />
+                          <div>
+                            <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+                              {selected.persona_label || "Session"}
+                            </h2>
+                            <div className="mt-2 grid gap-1 text-xs text-[var(--text-muted)]">
+                              <div>
+                                Respondent ID: <code className="font-mono">{selected.id}</code>{" "}
+                                <button onClick={() => copyText(selected.id)} className="text-[var(--brand-primary)]">Copy</button>
+                              </div>
+                              <div>
+                                External ID: <code className="font-mono">{selected.external_id || "—"}</code>
+                              </div>
+                              <div>
+                                Email: <code className="font-mono">{selected.email || "—"}</code>
+                              </div>
+                              <div>
+                                Consent: <span className="font-medium text-[var(--text-secondary)]">{selected.consent === null || selected.consent === undefined ? "—" : selected.consent ? "Yes" : "No"}</span>
+                              </div>
                             </div>
                           </div>
                         </div>
+
+                        <div className="flex flex-wrap items-center gap-2">
+                          <label className="flex items-center gap-2 rounded-full border border-[var(--border-default)] bg-white px-3 py-2 text-xs text-[var(--text-secondary)]">
+                            <input
+                              type="checkbox"
+                              checked={includeSystem}
+                              onChange={(e) => setIncludeSystem(e.target.checked)}
+                              className="rounded border-[var(--border-default)]"
+                            />
+                            System prompts
+                          </label>
+                        </div>
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-2">
-                        <label className="flex items-center gap-2 rounded-full border border-[var(--border-default)] bg-white px-3 py-2 text-xs text-[var(--text-secondary)]">
-                          <input
-                            type="checkbox"
-                            checked={includeSystem}
-                            onChange={(e) => setIncludeSystem(e.target.checked)}
-                            className="rounded border-[var(--border-default)]"
-                          />
-                          System prompts
-                        </label>
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--text-muted)]">
+                        <span className="rounded-full border border-[var(--border-default)] bg-white px-3 py-1">
+                          Status: {selected.is_closed ? "Closed" : "Open"}
+                        </span>
+                        <span className="rounded-full border border-[var(--border-default)] bg-white px-3 py-1">
+                          Responses: {selected.answer_count ?? 0}
+                        </span>
+                        <span className="rounded-full border border-[var(--border-default)] bg-white px-3 py-1">
+                          Last activity: {selected.last_activity_at ? new Date(selected.last_activity_at).toLocaleString() : "—"}
+                        </span>
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--text-muted)]">
-                      <span className="rounded-full border border-[var(--border-default)] bg-white px-3 py-1">
-                        Status: {selected.is_closed ? "Closed" : "Open"}
-                      </span>
-                      <span className="rounded-full border border-[var(--border-default)] bg-white px-3 py-1">
-                        Responses: {selected.answer_count ?? 0}
-                      </span>
-                      <span className="rounded-full border border-[var(--border-default)] bg-white px-3 py-1">
-                        Last activity: {selected.last_activity_at ? new Date(selected.last_activity_at).toLocaleString() : "—"}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Findings Summary */}
-                  {selected.findings_summary ? (
-                    <div className="mt-4 rounded-2xl border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
-                      <div className="text-xs font-semibold text-[var(--text-muted)] mb-2">Narrative summary</div>
-                      <div className="group relative">
-                        <button
-                          type="button"
-                          onClick={() => copyText(selected.findings_summary || "")}
-                          className="absolute top-0 right-0 rounded-full border border-[var(--border-default)] bg-white px-2 py-0.5 text-[10px] font-semibold text-[var(--text-secondary)] opacity-0 transition-opacity group-hover:opacity-100"
-                          aria-label="Copy narrative summary"
-                        >
-                          Copy
-                        </button>
-                        <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
-                          {selected.findings_summary}
-                        </p>
+                    {/* Findings Summary */}
+                    {selected.findings_summary ? (
+                      <div className="mt-4 rounded-2xl border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
+                        <div className="text-xs font-semibold text-[var(--text-muted)] mb-2">Narrative summary</div>
+                        <div className="group relative">
+                          <button
+                            type="button"
+                            onClick={() => copyText(selected.findings_summary || "")}
+                            className="absolute top-0 right-0 rounded-full border border-[var(--border-default)] bg-white px-2 py-0.5 text-[10px] font-semibold text-[var(--text-secondary)] opacity-0 transition-opacity group-hover:opacity-100"
+                            aria-label="Copy narrative summary"
+                          >
+                            Copy
+                          </button>
+                          <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
+                            {selected.findings_summary}
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                  ) : (
-                    <div className="mt-4 rounded-2xl border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4 text-sm text-[var(--text-muted)]">
-                      Pending analysis. Summary will appear once the interview is processed.
-                    </div>
-                  )}
+                    ) : (
+                      <div className="mt-4 rounded-2xl border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4 text-sm text-[var(--text-muted)]">
+                        Pending analysis. Summary will appear once the interview is processed.
+                      </div>
+                    )}
 
-                  {/* Rating Buttons */}
-                  <div className="mt-4 flex flex-wrap items-center gap-2">
-                    <button
-                      onClick={() => handleLikeClick(1)}
-                      className={`flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold transition-all-base border ${
-                        currentLike === 1
-                          ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                          : "bg-white text-[var(--text-secondary)] border-[var(--border-default)]"
-                      }`}
-                    >
-                      <svg className="h-4 w-4" fill={currentLike === 1 ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
-                      </svg>
-                      Like
-                    </button>
-                    <button
-                      onClick={() => handleLikeClick(0)}
-                      className={`flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold transition-all-base border ${
-                        currentLike === 0
-                          ? "bg-amber-50 text-amber-700 border-amber-200"
-                          : "bg-white text-[var(--text-secondary)] border-[var(--border-default)]"
-                      }`}
-                    >
-                      😐 Neutral
-                    </button>
-                    <button
-                      onClick={() => handleLikeClick(-1)}
-                      className={`flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold transition-all-base border ${
-                        currentLike === -1
-                          ? "bg-red-50 text-red-700 border-red-200"
-                          : "bg-white text-[var(--text-secondary)] border-[var(--border-default)]"
-                      }`}
-                    >
-                      <svg className="h-4 w-4" fill={currentLike === -1 ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018a2 2 0 01.485.06l3.76.94m-7 10v5a2 2 0 002 2h.096c.5 0 .905-.405.905-.904 0-.715.211-1.413.608-2.008L17 13V4m-7 10h2m5-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2.5" />
-                      </svg>
-                      Dislike
-                    </button>
-                    {likeStatus !== "idle" && (
-                      <span
-                        key={likeStatus === "saved" ? `saved-${likeBlinkKey}` : likeStatus}
-                        className={`text-xs ${
-                          likeStatus === "saved"
-                            ? "text-emerald-600 animate-double-blink"
-                            : likeStatus === "error"
-                            ? "text-red-600"
-                            : "text-[var(--text-muted)]"
+                    {/* Rating Buttons */}
+                    <div className="mt-4 flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={() => handleLikeClick(1)}
+                        className={`flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold transition-all-base border ${
+                          currentLike === 1
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                            : "bg-white text-[var(--text-secondary)] border-[var(--border-default)]"
                         }`}
                       >
-                        {likeStatus === "saving"
-                          ? "Saving..."
-                          : likeStatus === "saved"
-                          ? "Saved"
-                          : "Save failed"}
-                      </span>
-                    )}
+                        <svg className="h-4 w-4" fill={currentLike === 1 ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
+                        </svg>
+                        Like
+                      </button>
+                      <button
+                        onClick={() => handleLikeClick(0)}
+                        className={`flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold transition-all-base border ${
+                          currentLike === 0
+                            ? "bg-amber-50 text-amber-700 border-amber-200"
+                            : "bg-white text-[var(--text-secondary)] border-[var(--border-default)]"
+                        }`}
+                      >
+                        😐 Neutral
+                      </button>
+                      <button
+                        onClick={() => handleLikeClick(-1)}
+                        className={`flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold transition-all-base border ${
+                          currentLike === -1
+                            ? "bg-red-50 text-red-700 border-red-200"
+                            : "bg-white text-[var(--text-secondary)] border-[var(--border-default)]"
+                        }`}
+                      >
+                        <svg className="h-4 w-4" fill={currentLike === -1 ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018a2 2 0 01.485.06l3.76.94m-7 10v5a2 2 0 002 2h.096c.5 0 .905-.405.905-.904 0-.715.211-1.413.608-2.008L17 13V4m-7 10h2m5-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2.5" />
+                        </svg>
+                        Dislike
+                      </button>
+                      {likeStatus !== "idle" && (
+                        <span
+                          key={likeStatus === "saved" ? `saved-${likeBlinkKey}` : likeStatus}
+                          className={`text-xs ${
+                            likeStatus === "saved"
+                              ? "text-emerald-600 animate-double-blink"
+                              : likeStatus === "error"
+                              ? "text-red-600"
+                              : "text-[var(--text-muted)]"
+                          }`}
+                        >
+                          {likeStatus === "saving"
+                            ? "Saving..."
+                            : likeStatus === "saved"
+                            ? "Saved"
+                            : "Save failed"}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Note */}
+                    <div className="mt-4">
+                      <Textarea
+                        value={noteDraft}
+                        onChange={(e) => setNoteDraft(e.target.value)}
+                        placeholder="Add internal notes..."
+                        className="min-h-[60px]"
+                      />
+                      <div className="mt-2 flex items-center justify-between">
+                        <span className="text-xs text-[var(--text-muted)]">
+                          Notes save automatically •{" "}
+                          {noteStatus === "saving"
+                            ? "Saving..."
+                            : noteStatus === "saved"
+                            ? "Saved"
+                            : noteStatus === "error"
+                            ? "Save failed"
+                            : "Idle"}
+                        </span>
+                      </div>
+                    </div>
                   </div>
 
-                  {/* Note */}
-                  <div className="mt-4">
-                    <Textarea
-                      value={noteDraft}
-                      onChange={(e) => setNoteDraft(e.target.value)}
-                      placeholder="Add internal notes..."
-                      className="min-h-[60px]"
-                    />
-                    <div className="mt-2 flex items-center justify-between">
-                      <span className="text-xs text-[var(--text-muted)]">
-                        Notes save automatically •{" "}
-                        {noteStatus === "saving"
-                          ? "Saving..."
-                          : noteStatus === "saved"
-                          ? "Saved"
-                          : noteStatus === "error"
-                          ? "Save failed"
-                          : "Idle"}
-                      </span>
+                  {/* Transcript */}
+                  <div className="flex-1 overflow-y-auto p-6 bg-[var(--bg-secondary)]">
+                    <div className="space-y-4">
+                      {transcriptItems.map((item) => {
+                        if (item.type === "topic") {
+                          return (
+                            <div key={item.id} className="flex justify-center">
+                              <div className="rounded-full border border-[var(--border-default)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--text-muted)]">
+                                {item.label}
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        const m = item.record;
+                        const isUser = m.role === "user";
+                        const isSystem = m.role === "system";
+
+                        return (
+                          <div
+                            key={item.id}
+                            className={`flex gap-3 ${isUser ? "flex-row-reverse" : ""} animate-fade-in`}
+                          >
+                            <RoleAvatar role={m.role} size="sm" />
+                            <div className={`max-w-[75%] ${isUser ? "items-end" : ""}`}>
+                              <div
+                                className={`
+                                  group relative rounded-2xl px-4 py-3 text-sm leading-relaxed
+                                  ${isSystem
+                                    ? "bg-[var(--bg-secondary)] border border-[var(--border-default)] text-[var(--text-muted)]"
+                                    : isUser
+                                    ? "bg-[var(--brand-primary)] text-white"
+                                    : "bg-white border border-[var(--border-default)] text-[var(--text-primary)]"
+                                  }
+                                `}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => copyText(m.content || "")}
+                                  className={`
+                                    absolute top-2 ${isUser ? "left-2" : "right-2"}
+                                    rounded-full border border-[var(--border-default)] bg-white px-2 py-0.5 text-[10px] font-semibold text-[var(--text-secondary)]
+                                    opacity-0 transition-opacity group-hover:opacity-100
+                                  `}
+                                  aria-label="Copy message"
+                                >
+                                  Copy
+                                </button>
+                                <div className="whitespace-pre-wrap">{m.content}</div>
+                              </div>
+                              <div className={`mt-1.5 flex items-center gap-3 text-[10px] text-[var(--text-muted)] ${isUser ? "justify-end" : ""}`}>
+                                <span>{m.created_at ? new Date(m.created_at).toLocaleTimeString() : ""}</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {displayRecords.length === 0 && (
+                        <div className="text-center py-12 text-sm text-[var(--text-muted)]">
+                          No messages in this session yet.
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
+              )}
+            </div>
 
-                {/* Transcript */}
-                <div className="flex-1 overflow-y-auto p-6 bg-[var(--bg-secondary)]">
-                  <div className="space-y-4">
-                    {displayRecords.map((m) => {
-                      const isUser = m.role === "user";
-                      const isSystem = m.role === "system";
+            <div className="glass-card rounded-3xl p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-[var(--text-primary)]">Topics</div>
+                  <div className="text-xs text-[var(--text-muted)]">
+                    {filteredTopics.length} of {topics.length} topics
+                  </div>
+                </div>
+                <div className="min-w-[220px] w-full sm:w-auto">
+                  <Input
+                    value={topicSearch}
+                    onChange={(e) => setTopicSearch(e.target.value)}
+                    placeholder="Search topics..."
+                  />
+                </div>
+              </div>
 
-                      return (
-                        <div
-                          key={m.id}
-                          className={`flex gap-3 ${isUser ? "flex-row-reverse" : ""} animate-fade-in`}
-                        >
-                          <RoleAvatar role={m.role} size="sm" />
-                          <div className={`max-w-[75%] ${isUser ? "items-end" : ""}`}>
-                            <div
-                              className={`
-                                group relative rounded-2xl px-4 py-3 text-sm leading-relaxed
-                                ${isSystem
-                                  ? "bg-[var(--bg-secondary)] border border-[var(--border-default)] text-[var(--text-muted)]"
-                                  : isUser
-                                  ? "bg-[var(--brand-primary)] text-white"
-                                  : "bg-white border border-[var(--border-default)] text-[var(--text-primary)]"
-                                }
-                              `}
-                            >
+              <div className="mt-4 overflow-x-auto">
+                {topicsQ.isLoading && (
+                  <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
+                    <Skeleton className="h-4 w-4 rounded-full" />
+                    Loading topics...
+                  </div>
+                )}
+                {topicsQ.error && (
+                  <div className="text-xs text-red-500">{(topicsQ.error as Error).message}</div>
+                )}
+                {!topicsQ.isLoading && !topicsQ.error && filteredTopics.length === 0 && (
+                  <div className="text-xs text-[var(--text-muted)]">No topics found for this project.</div>
+                )}
+                {!topicsQ.isLoading && !topicsQ.error && filteredTopics.length > 0 && (
+                  <table className="w-full min-w-[980px] text-xs">
+                    <thead>
+                      <tr className="text-left text-[var(--text-muted)]">
+                        <th className="px-3 py-2 font-semibold uppercase tracking-wide">ID</th>
+                        <th className="px-3 py-2 font-semibold uppercase tracking-wide">Project</th>
+                        <th className="px-3 py-2 font-semibold uppercase tracking-wide">System</th>
+                        <th className="px-3 py-2 font-semibold uppercase tracking-wide">Length</th>
+                        <th className="px-3 py-2 font-semibold uppercase tracking-wide">Sequence</th>
+                        <th className="px-3 py-2 font-semibold uppercase tracking-wide">Type</th>
+                        <th className="px-3 py-2 font-semibold uppercase tracking-wide">Expiration</th>
+                        <th className="px-3 py-2 font-semibold uppercase tracking-wide">Defined answers</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredTopics.map((topic) => {
+                        const systemFull = topic.system ? String(topic.system) : "";
+                        const systemShort = systemFull ? truncateText(systemFull) : "—";
+                        const definedFull = formatJsonValue(topic.defined_answers);
+                        const definedShort = definedFull ? truncateText(definedFull) : "—";
+                        return (
+                          <tr key={topic.id || `${topic.project}-${topic.sequence}`} className="border-t border-[var(--border-default)]">
+                            <td className="px-3 py-2">
+                              <div className="flex items-center gap-2">
+                                <code className="font-mono text-[10px] text-[var(--text-secondary)]">
+                                  {topic.id || "—"}
+                                </code>
+                                <button
+                                  onClick={() => copyText(topic.id || "")}
+                                  disabled={!topic.id}
+                                  className="text-[10px] font-semibold text-[var(--brand-primary)] disabled:opacity-50"
+                                >
+                                  Copy
+                                </button>
+                              </div>
+                            </td>
+                            <td className="px-3 py-2 text-[var(--text-secondary)]">{formatValue(topic.project)}</td>
+                            <td className="px-3 py-2">
+                              <div className="text-[var(--text-secondary)] whitespace-pre-wrap">
+                                {systemShort}
+                              </div>
+                              {systemFull.length > 0 && systemFull.length !== systemShort.length && (
+                                <button
+                                  type="button"
+                                  onClick={() => openDetailModal("Topic system prompt", systemFull)}
+                                  className="mt-1 text-[10px] font-semibold text-[var(--brand-primary)]"
+                                >
+                                  View full prompt
+                                </button>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-[var(--text-secondary)]">{formatValue(topic.length)}</td>
+                            <td className="px-3 py-2 text-[var(--text-secondary)]">{formatValue(topic.sequence)}</td>
+                            <td className="px-3 py-2 text-[var(--text-secondary)]">{formatValue(topic.topic_type)}</td>
+                            <td className="px-3 py-2 text-[var(--text-secondary)]">{formatValue(topic.expiration_strategy)}</td>
+                            <td className="px-3 py-2">
+                              <div className="text-[var(--text-secondary)] whitespace-pre-wrap">
+                                {definedShort || "—"}
+                              </div>
+                              {definedFull.length > 0 && definedFull.length !== definedShort.length && (
+                                <button
+                                  type="button"
+                                  onClick={() => openDetailModal("Defined answers", definedFull)}
+                                  className="mt-1 text-[10px] font-semibold text-[var(--brand-primary)]"
+                                >
+                                  View JSON
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+
+            <div className="glass-card rounded-3xl p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-[var(--text-primary)]">Topic logs</div>
+                  <div className="text-xs text-[var(--text-muted)]">
+                    {filteredTopicLogs.length} of {topicLogs.length} entries
+                  </div>
+                </div>
+                <div className="min-w-[220px] w-full sm:w-auto">
+                  <Input
+                    value={topicLogSearch}
+                    onChange={(e) => setTopicLogSearch(e.target.value)}
+                    placeholder="Search topic logs..."
+                  />
+                </div>
+              </div>
+
+              <div className="mt-4 overflow-x-auto">
+                {topicLogsQ.isLoading && (
+                  <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
+                    <Skeleton className="h-4 w-4 rounded-full" />
+                    Loading topic logs...
+                  </div>
+                )}
+                {topicLogsQ.error && (
+                  <div className="text-xs text-red-500">{(topicLogsQ.error as Error).message}</div>
+                )}
+                {!topicLogsQ.isLoading && !topicLogsQ.error && filteredTopicLogs.length === 0 && (
+                  <div className="text-xs text-[var(--text-muted)]">No topic logs recorded yet.</div>
+                )}
+                {!topicLogsQ.isLoading && !topicLogsQ.error && filteredTopicLogs.length > 0 && (
+                  <table className="w-full min-w-[840px] text-xs">
+                    <thead>
+                      <tr className="text-left text-[var(--text-muted)]">
+                        <th className="px-3 py-2 font-semibold uppercase tracking-wide">ID</th>
+                        <th className="px-3 py-2 font-semibold uppercase tracking-wide">Topic ID</th>
+                        <th className="px-3 py-2 font-semibold uppercase tracking-wide">Respondent</th>
+                        <th className="px-3 py-2 font-semibold uppercase tracking-wide">Started</th>
+                        <th className="px-3 py-2 font-semibold uppercase tracking-wide">Status</th>
+                        <th className="px-3 py-2 font-semibold uppercase tracking-wide">Responses</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredTopicLogs.map((log) => (
+                        <tr key={log.id ?? `${log.topic_id}-${log.user_id}`} className="border-t border-[var(--border-default)]">
+                          <td className="px-3 py-2 text-[var(--text-secondary)]">{formatValue(log.id)}</td>
+                          <td className="px-3 py-2">
+                            <div className="flex items-center gap-2">
+                              <code className="font-mono text-[10px] text-[var(--text-secondary)]">
+                                {log.topic_id || "—"}
+                              </code>
                               <button
-                                type="button"
-                                onClick={() => copyText(m.content || "")}
-                                className={`
-                                  absolute top-2 ${isUser ? "left-2" : "right-2"}
-                                  rounded-full border border-[var(--border-default)] bg-white px-2 py-0.5 text-[10px] font-semibold text-[var(--text-secondary)]
-                                  opacity-0 transition-opacity group-hover:opacity-100
-                                `}
-                                aria-label="Copy message"
+                                onClick={() => copyText(log.topic_id || "")}
+                                disabled={!log.topic_id}
+                                className="text-[10px] font-semibold text-[var(--brand-primary)] disabled:opacity-50"
                               >
                                 Copy
                               </button>
-                              <div className="whitespace-pre-wrap">{m.content}</div>
                             </div>
-                            <div className={`mt-1.5 flex items-center gap-3 text-[10px] text-[var(--text-muted)] ${isUser ? "justify-end" : ""}`}>
-                              <span>{m.created_at ? new Date(m.created_at).toLocaleTimeString() : ""}</span>
+                          </td>
+                          <td className="px-3 py-2">
+                            <div className="flex items-center gap-2">
+                              <code className="font-mono text-[10px] text-[var(--text-secondary)]">
+                                {log.user_id || "—"}
+                              </code>
+                              <button
+                                onClick={() => copyText(log.user_id || "")}
+                                disabled={!log.user_id}
+                                className="text-[10px] font-semibold text-[var(--brand-primary)] disabled:opacity-50"
+                              >
+                                Copy
+                              </button>
                             </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-
-                    {displayRecords.length === 0 && (
-                      <div className="text-center py-12 text-sm text-[var(--text-muted)]">
-                        No messages in this session yet.
-                      </div>
-                    )}
-                  </div>
-                </div>
+                          </td>
+                          <td className="px-3 py-2 text-[var(--text-secondary)]">
+                            {log.started_at ? new Date(log.started_at).toLocaleString() : "—"}
+                          </td>
+                          <td className="px-3 py-2 text-[var(--text-secondary)]">{formatValue(log.status)}</td>
+                          <td className="px-3 py-2 text-[var(--text-secondary)]">{formatValue(log.responses)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
               </div>
-            )}
+            </div>
           </div>
         </div>
       </div>

@@ -75,6 +75,64 @@ async function stubAdminRoutes(page, projectId, shareLinks = [activeShareLink]) 
     });
   });
 
+  await page.route(`**/api/admin/projects/${projectId}/topics`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        topics: [
+          {
+            id: "t1",
+            project: projectId,
+            system: "What do you care about most when choosing a build?",
+            length: 1,
+            sequence: 1,
+            topic_type: "single_question",
+            expiration_strategy: "count",
+            defined_answers: ["Transparent stats", "Skill progression"],
+          },
+          {
+            id: "t2",
+            project: projectId,
+            system: "What makes a game feel fair?",
+            length: 2,
+            sequence: 2,
+            topic_type: "auto",
+            expiration_strategy: "time",
+            defined_answers: { answers: ["Clear rules", "Predictable outcomes"] },
+          },
+        ],
+      }),
+    });
+  });
+
+  await page.route(`**/api/admin/projects/${projectId}/topics_log`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        logs: [
+          {
+            id: 11,
+            topic_id: "t1",
+            user_id: "19c86d43-0edc-4b95-9f10-cdf04e2da9b4",
+            started_at: "2026-01-13T12:00:00.000Z",
+            status: 1,
+            responses: 2,
+          },
+          {
+            id: 12,
+            topic_id: "t2",
+            user_id: "19c86d43-0edc-4b95-9f10-cdf04e2da9b4",
+            started_at: "2026-01-13T12:04:00.000Z",
+            status: 0,
+            responses: 1,
+          },
+        ],
+      }),
+    });
+  });
+
   await page.route(`**/api/admin/projects/${projectId}/sessions**`, async (route) => {
     await route.fulfill({
       status: 200,
@@ -133,6 +191,7 @@ async function stubAdminRoutes(page, projectId, shareLinks = [activeShareLink]) 
             role: "assistant",
             content: "What do you care about most when choosing a build?",
             topic: "t1",
+            topic_label: "Build preferences. What do you care about most when choosing a build?",
             admin_like: 0,
             admin_note: null,
           },
@@ -142,6 +201,7 @@ async function stubAdminRoutes(page, projectId, shareLinks = [activeShareLink]) 
             role: "user",
             content: "Transparent stats and optimization potential. I min-max quickly.",
             topic: "t1",
+            topic_label: "Build preferences. What do you care about most when choosing a build?",
             admin_like: 0,
             admin_note: null,
           },
@@ -168,7 +228,7 @@ test.describe("results portal (mocked)", () => {
     const projectId = "results_portal_demo_2026_01_14";
     await stubAdminRoutes(page, projectId);
 
-    // Load Results SPA root; it should redirect to /admin inside the app
+    // Load Results SPA root; it should redirect to /projects inside the app
     await page.goto("/results/", { waitUntil: "domcontentloaded" });
     await expect(page.getByText("Interview Projects", { exact: true })).toBeVisible();
 
@@ -179,6 +239,8 @@ test.describe("results portal (mocked)", () => {
     await expect(page.getByRole("button", { name: /Competitive min-maxer/ })).toBeVisible();
     await expect(page.getByText("Token usage", { exact: true })).toBeVisible();
     await expect(page.getByText("Interviews", { exact: true })).toBeVisible();
+    await expect(page.getByText("Topics", { exact: true })).toBeVisible();
+    await expect(page.getByText("Topic logs", { exact: true })).toBeVisible();
 
     // Click into a session and verify transcript content is shown
     await page.getByRole("button", { name: /Competitive min-maxer/ }).click();

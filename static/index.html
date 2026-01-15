@@ -295,5 +295,759 @@
   hideRestartAfterAbort();
 })();
 </script>
+<script>
+(() => {
+  const VOICE = {
+    ids: {
+      style: "qvantify-voice-style",
+      micButton: "qvantify-mic-btn",
+      wrap: "qvantify-voice-wrap",
+      host: "qvantify-voice-host",
+      helper: "qvantify-voice-helper",
+      recording: "qvantify-voice-recording",
+      meterBar: "qvantify-voice-meter-bar",
+      timer: "qvantify-voice-timer",
+      stop: "qvantify-voice-stop",
+      cancel: "qvantify-voice-cancel",
+      actions: "qvantify-voice-actions",
+      undo: "qvantify-voice-undo",
+      copy: "qvantify-voice-copy",
+      clear: "qvantify-voice-clear",
+      banner: "qvantify-voice-banner",
+      bannerText: "qvantify-voice-banner-text",
+      bannerRetry: "qvantify-voice-banner-retry",
+      fileInput: "qvantify-voice-file-input",
+    },
+  };
+
+  const textValue = (value) => String(value ?? "").trim();
+  const normalize = (value) => textValue(value).toLowerCase();
+
+  const readJson = (key) => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  };
+
+  const getProject = () => {
+    const stored = readJson("project_details");
+    return Array.isArray(stored) ? stored[0] : stored;
+  };
+
+  const getProjectId = () => {
+    const url = new URL(window.location.href);
+    const fromQuery = url.searchParams.get("interview");
+    if (fromQuery) return fromQuery;
+    const fromStore = readJson("project_id") || readJson("projectId");
+    return typeof fromStore === "string" ? fromStore : null;
+  };
+
+  const getUuid = () => {
+    const fromUserId = readJson("user_id");
+    if (typeof fromUserId === "string" && fromUserId.trim()) return fromUserId.trim();
+    const fromUuid = readJson("uuid");
+    if (typeof fromUuid === "string" && fromUuid.trim()) return fromUuid.trim();
+    const raw = (localStorage.getItem("user_id") || localStorage.getItem("uuid") || "").trim();
+    // Sometimes stored as a raw string (not JSON).
+    if (raw && raw.length >= 8) return raw.replace(/^"|"$/g, "");
+    return null;
+  };
+
+  const isVoiceEnabled = () => {
+    const project = getProject();
+    if (!project) return false;
+    return Boolean(project.voice_enabled);
+  };
+
+  const findClickableParent = (el) => {
+    const isInteractive = (node) => {
+      if (!node) return false;
+      if (!(node instanceof HTMLElement)) return false;
+      const tag = (node.tagName || "").toLowerCase();
+      if (tag === "button" || tag === "a") return true;
+      const role = node.getAttribute("role");
+      if (role === "button") return true;
+      const tabindex = node.getAttribute("tabindex");
+      if (tabindex && tabindex !== "-1") return true;
+      return false;
+    };
+
+    let node = el;
+    for (; node && node !== document.body; node = node.parentElement) {
+      if (isInteractive(node)) return node;
+      const styles = getComputedStyle(node);
+      if (styles && styles.cursor === "pointer") return node;
+    }
+    return el;
+  };
+
+  const ensureStyles = () => {
+    if (document.getElementById(VOICE.ids.style)) return;
+    const style = document.createElement("style");
+    style.id = VOICE.ids.style;
+    style.textContent = `
+      #${VOICE.ids.wrap}{display:inline-flex;align-items:center;gap:8px;position:relative;z-index:5}
+      #${VOICE.ids.micButton}{width:44px;height:44px;border-radius:9999px;border:1px solid rgba(0,0,0,.14);background:transparent;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;position:relative;z-index:6;pointer-events:auto}
+      #${VOICE.ids.micButton}[disabled]{opacity:.55;cursor:not-allowed}
+      #${VOICE.ids.micButton} svg{width:18px;height:18px;opacity:.85}
+
+      #${VOICE.ids.host}{margin-top:10px;font-family:inherit}
+      #${VOICE.ids.helper}{font-size:12px;line-height:16px;color:rgba(0,0,0,.62)}
+      #${VOICE.ids.recording}{margin-top:8px;display:none;align-items:center;gap:10px;flex-wrap:wrap}
+      #${VOICE.ids.recording}.is-visible{display:flex}
+      #${VOICE.ids.timer}{font-size:12px;color:rgba(0,0,0,.62);min-width:44px;text-align:right}
+      #qvantify-voice-meter{width:110px;height:6px;border-radius:9999px;background:rgba(0,0,0,.12);overflow:hidden}
+      #${VOICE.ids.meterBar}{height:100%;width:0%;background:rgba(90,69,255,.95);transition:width 80ms linear}
+      #${VOICE.ids.recording} button,#${VOICE.ids.actions} button,#${VOICE.ids.banner} button{border-radius:9999px;border:1px solid rgba(0,0,0,.14);background:#fff;padding:6px 10px;font-size:12px;cursor:pointer}
+      #${VOICE.ids.recording} button[disabled],#${VOICE.ids.actions} button[disabled]{opacity:.6;cursor:not-allowed}
+
+      #${VOICE.ids.actions}{margin-top:10px;display:none;align-items:center;gap:8px;flex-wrap:wrap}
+      #${VOICE.ids.actions}.is-visible{display:flex}
+
+      #${VOICE.ids.banner}{margin-top:10px;display:none;border-radius:12px;border:1px solid rgba(0,0,0,.14);background:rgba(255,247,237,1);padding:10px;font-size:12px;line-height:16px}
+      #${VOICE.ids.banner}.is-visible{display:block}
+      #${VOICE.ids.banner} summary{cursor:pointer}
+      #${VOICE.ids.bannerText}{color:rgba(124,45,18,1)}
+    `;
+    document.head.appendChild(style);
+  };
+
+  const formatTimer = (ms) => {
+    const total = Math.max(0, Math.floor(ms / 1000));
+    const m = String(Math.floor(total / 60)).padStart(2, "0");
+    const s = String(total % 60).padStart(2, "0");
+    return `${m}:${s}`;
+  };
+
+  const setButtonDisabled = (el, disabled) => {
+    if (!el || !(el instanceof HTMLElement)) return;
+    if ("disabled" in el) {
+      // @ts-ignore
+      el.disabled = Boolean(disabled);
+    } else {
+      el.style.pointerEvents = disabled ? "none" : "auto";
+      el.style.opacity = disabled ? "0.6" : "1";
+      el.setAttribute("aria-disabled", disabled ? "true" : "false");
+    }
+  };
+
+  const createIcon = () => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute(
+      "d",
+      "M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Zm7-3a1 1 0 0 0-2 0 5 5 0 0 1-10 0 1 1 0 0 0-2 0 7 7 0 0 0 6 6.92V20H9a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2h-2v-2.08A7 7 0 0 0 19 11Z"
+    );
+    path.setAttribute("fill", "currentColor");
+    svg.appendChild(path);
+    return svg;
+  };
+
+  const createVoiceHost = (inputEl) => {
+    const existing = document.getElementById(VOICE.ids.host);
+    if (existing) return existing;
+    const host = document.createElement("div");
+    host.id = VOICE.ids.host;
+
+    const helper = document.createElement("div");
+    helper.id = VOICE.ids.helper;
+    helper.textContent = "Just respond with your voice and we'll turn it into text.";
+
+    const recording = document.createElement("div");
+    recording.id = VOICE.ids.recording;
+
+    const meter = document.createElement("div");
+    meter.id = "qvantify-voice-meter";
+    const meterBar = document.createElement("div");
+    meterBar.id = VOICE.ids.meterBar;
+    meter.appendChild(meterBar);
+
+    const timer = document.createElement("div");
+    timer.id = VOICE.ids.timer;
+    timer.textContent = "00:00";
+
+    const stopBtn = document.createElement("button");
+    stopBtn.type = "button";
+    stopBtn.id = VOICE.ids.stop;
+    stopBtn.textContent = "Stop";
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.id = VOICE.ids.cancel;
+    cancelBtn.textContent = "Cancel";
+
+    recording.appendChild(meter);
+    recording.appendChild(timer);
+    recording.appendChild(stopBtn);
+    recording.appendChild(cancelBtn);
+
+    const actions = document.createElement("div");
+    actions.id = VOICE.ids.actions;
+    const undoBtn = document.createElement("button");
+    undoBtn.type = "button";
+    undoBtn.id = VOICE.ids.undo;
+    undoBtn.textContent = "Undo insert";
+    const copyBtn = document.createElement("button");
+    copyBtn.type = "button";
+    copyBtn.id = VOICE.ids.copy;
+    copyBtn.textContent = "Copy";
+    const clearBtn = document.createElement("button");
+    clearBtn.type = "button";
+    clearBtn.id = VOICE.ids.clear;
+    clearBtn.textContent = "Clear voice draft";
+    actions.appendChild(undoBtn);
+    actions.appendChild(copyBtn);
+    actions.appendChild(clearBtn);
+
+    const banner = document.createElement("div");
+    banner.id = VOICE.ids.banner;
+
+    const bannerText = document.createElement("div");
+    bannerText.id = VOICE.ids.bannerText;
+    banner.appendChild(bannerText);
+
+    const bannerActions = document.createElement("div");
+    bannerActions.style.marginTop = "8px";
+    bannerActions.style.display = "flex";
+    bannerActions.style.gap = "8px";
+    bannerActions.style.flexWrap = "wrap";
+    const retryBtn = document.createElement("button");
+    retryBtn.type = "button";
+    retryBtn.id = VOICE.ids.bannerRetry;
+    retryBtn.textContent = "Try again";
+    bannerActions.appendChild(retryBtn);
+    banner.appendChild(bannerActions);
+
+    const details = document.createElement("details");
+    const summary = document.createElement("summary");
+    summary.textContent = "How to enable microphone";
+    details.appendChild(summary);
+    const help = document.createElement("div");
+    help.style.marginTop = "8px";
+    help.innerHTML = `
+      <div style="margin-bottom:6px">If you denied the prompt by accident, browsers often remember that choice and won't re-prompt until you change site permissions.</div>
+      <div style="margin-bottom:4px"><b>Desktop (Chrome/Edge)</b>: Lock icon -> Site settings -> Microphone -> Allow, then refresh.</div>
+      <div style="margin-bottom:4px"><b>Desktop (Firefox)</b>: Address bar mic/lock icon -> Permissions -> Allow microphone.</div>
+      <div style="margin-bottom:4px"><b>macOS Safari</b>: Safari -> Settings for This Website... -> Microphone -> Allow, then refresh.</div>
+      <div style="margin-bottom:4px"><b>iOS Safari</b>: iOS Settings -> Safari -> Microphone -> Allow, then return and refresh.</div>
+      <div><b>Android Chrome</b>: Lock icon -> Permissions -> Microphone -> Allow.</div>
+    `;
+    details.appendChild(help);
+    banner.appendChild(details);
+
+    const fileInput = document.createElement("input");
+    fileInput.type = "file";
+    fileInput.accept = "audio/*";
+    fileInput.id = VOICE.ids.fileInput;
+    fileInput.style.display = "none";
+    try {
+      fileInput.setAttribute("capture", "user");
+    } catch {
+      // Ignore
+    }
+    banner.appendChild(fileInput);
+
+    host.appendChild(helper);
+    host.appendChild(recording);
+    host.appendChild(actions);
+    host.appendChild(banner);
+
+    // Insert after input (best effort).
+    const parent = inputEl.parentElement;
+    if (parent) {
+      if (inputEl.nextSibling) parent.insertBefore(host, inputEl.nextSibling);
+      else parent.appendChild(host);
+    } else {
+      document.body.appendChild(host);
+    }
+
+    return host;
+  };
+
+  const state = {
+    recorder: null,
+    stream: null,
+    chunks: [],
+    cancelled: false,
+    startedAt: 0,
+    timerHandle: null,
+    rafHandle: null,
+    audioContext: null,
+    analyser: null,
+    transcript: "",
+    beforeInsertValue: "",
+    insertedSegment: "",
+  };
+
+  const cleanupRecording = () => {
+    if (state.timerHandle) {
+      clearInterval(state.timerHandle);
+      state.timerHandle = null;
+    }
+    if (state.rafHandle) {
+      cancelAnimationFrame(state.rafHandle);
+      state.rafHandle = null;
+    }
+    if (state.audioContext) {
+      try {
+        state.audioContext.close();
+      } catch {
+        // Ignore
+      }
+      state.audioContext = null;
+      state.analyser = null;
+    }
+    if (state.stream) {
+      try {
+        state.stream.getTracks().forEach((t) => t.stop());
+      } catch {
+        // Ignore
+      }
+      state.stream = null;
+    }
+    state.recorder = null;
+    state.chunks = [];
+    state.cancelled = false;
+  };
+
+  const showBanner = (host, message, showFileFallback) => {
+    const banner = host.querySelector(`#${VOICE.ids.banner}`);
+    const text = host.querySelector(`#${VOICE.ids.bannerText}`);
+    const retryBtn = host.querySelector(`#${VOICE.ids.bannerRetry}`);
+    if (!banner || !text || !retryBtn) return;
+    text.textContent = message;
+    banner.classList.add("is-visible");
+    const fileInput = host.querySelector(`#${VOICE.ids.fileInput}`);
+    if (fileInput) {
+      fileInput.style.display = showFileFallback ? "block" : "none";
+    }
+  };
+
+  const hideBanner = (host) => {
+    const banner = host.querySelector(`#${VOICE.ids.banner}`);
+    if (banner) banner.classList.remove("is-visible");
+  };
+
+  const setHelper = (host, text) => {
+    const helper = host.querySelector(`#${VOICE.ids.helper}`);
+    if (helper) helper.textContent = text;
+  };
+
+  const setRecordingVisible = (host, visible) => {
+    const el = host.querySelector(`#${VOICE.ids.recording}`);
+    if (!el) return;
+    if (visible) el.classList.add("is-visible");
+    else el.classList.remove("is-visible");
+  };
+
+  const setActionsVisible = (host, visible) => {
+    const el = host.querySelector(`#${VOICE.ids.actions}`);
+    if (!el) return;
+    if (visible) el.classList.add("is-visible");
+    else el.classList.remove("is-visible");
+  };
+
+  const updateTimer = (host) => {
+    const timer = host.querySelector(`#${VOICE.ids.timer}`);
+    if (!timer) return;
+    timer.textContent = formatTimer(Date.now() - state.startedAt);
+  };
+
+  const updateMeter = (host) => {
+    const bar = host.querySelector(`#${VOICE.ids.meterBar}`);
+    if (!bar || !state.analyser) return;
+    const analyser = state.analyser;
+    const data = new Uint8Array(analyser.fftSize);
+    analyser.getByteTimeDomainData(data);
+    let sum = 0;
+    for (let i = 0; i < data.length; i += 1) {
+      const v = (data[i] - 128) / 128;
+      sum += v * v;
+    }
+    const rms = Math.sqrt(sum / data.length);
+    const pct = Math.max(0, Math.min(1, rms * 2.2));
+    bar.style.width = `${Math.round(pct * 100)}%`;
+    state.rafHandle = requestAnimationFrame(() => updateMeter(host));
+  };
+
+  const ensureAnalyser = async (host, stream) => {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const src = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 2048;
+      src.connect(analyser);
+      state.audioContext = ctx;
+      state.analyser = analyser;
+      updateMeter(host);
+    } catch {
+      // Ignore
+    }
+  };
+
+  const setProcessingUi = (micBtn, replyBtn, inputEl, processing) => {
+    setButtonDisabled(micBtn, processing);
+    setButtonDisabled(replyBtn, processing);
+    if (inputEl && "disabled" in inputEl) {
+      // @ts-ignore
+      inputEl.disabled = Boolean(processing);
+    }
+    if (micBtn && micBtn instanceof HTMLElement) {
+      micBtn.dataset.processing = processing ? "1" : "0";
+    }
+  };
+
+  const copyToClipboard = async (text) => {
+    const val = String(text || "");
+    if (!val) return false;
+    try {
+      await navigator.clipboard.writeText(val);
+      return true;
+    } catch {
+      try {
+        const tmp = document.createElement("textarea");
+        tmp.value = val;
+        tmp.style.position = "fixed";
+        tmp.style.left = "-9999px";
+        document.body.appendChild(tmp);
+        tmp.select();
+        document.execCommand("copy");
+        tmp.remove();
+        return true;
+      } catch {
+        return false;
+      }
+    }
+  };
+
+  const removeInsertedSegment = (currentValue) => {
+    const seg = state.insertedSegment;
+    if (!seg) return null;
+    const cur = String(currentValue || "");
+    if (!cur) return "";
+    if (cur.endsWith(seg)) {
+      return cur.slice(0, -seg.length);
+    }
+    const idx = cur.lastIndexOf(seg);
+    if (idx >= 0) {
+      return cur.slice(0, idx) + cur.slice(idx + seg.length);
+    }
+    return null;
+  };
+
+  const setInputValue = (inputEl, value) => {
+    if (!inputEl) return;
+    // @ts-ignore
+    inputEl.value = value;
+    inputEl.dispatchEvent(new Event("input", { bubbles: true }));
+    inputEl.dispatchEvent(new Event("change", { bubbles: true }));
+  };
+
+  const uploadAndInsert = async ({ host, micBtn, replyBtn, inputEl, file }) => {
+    hideBanner(host);
+    setActionsVisible(host, false);
+    setRecordingVisible(host, false);
+    setHelper(host, "Turning your voice into text...");
+    setProcessingUi(micBtn, replyBtn, inputEl, true);
+
+    try {
+      const projectId = getProjectId();
+      const uuid = getUuid();
+      if (!projectId || !uuid) {
+        throw new Error("Session not ready yet. Please wait a moment and try again.");
+      }
+      const fd = new FormData();
+      fd.append("audio", file, file.name || "voice.webm");
+      const res = await fetch("/api/voice-transcribe/", {
+        method: "POST",
+        headers: { projectId, uuid },
+        body: fd,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(String(data.error || "Transcription failed"));
+      }
+      const text = String(data.text || "").trim();
+      if (!text) {
+        throw new Error("No text was generated. Please try again.");
+      }
+
+      state.transcript = text;
+      state.beforeInsertValue = String(inputEl.value || "");
+      const sep = state.beforeInsertValue ? (state.beforeInsertValue.endsWith("\n") ? "" : "\n") : "";
+      state.insertedSegment = sep + text;
+      setInputValue(inputEl, state.beforeInsertValue + state.insertedSegment);
+
+      setHelper(host, "Voice draft ready. You can edit it or send it as normal.");
+      setActionsVisible(host, true);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Transcription failed";
+      setHelper(host, "Just respond with your voice and we'll turn it into text.");
+      showBanner(host, msg, false);
+    } finally {
+      setProcessingUi(micBtn, replyBtn, inputEl, false);
+    }
+  };
+
+  const startRecording = async ({ host, micBtn, replyBtn, inputEl }) => {
+    hideBanner(host);
+    setActionsVisible(host, false);
+
+    if (!window.isSecureContext) {
+      showBanner(host, "Microphone requires HTTPS. Please open this interview over HTTPS and try again.", false);
+      return;
+    }
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      showBanner(host, "This browser doesn't support microphone access.", true);
+      return;
+    }
+
+    if (typeof window.MediaRecorder === "undefined") {
+      showBanner(host, "Live recording isn't supported in this browser. You can upload a voice clip instead.", true);
+      const fileInput = host.querySelector(`#${VOICE.ids.fileInput}`);
+      if (fileInput) fileInput.click();
+      return;
+    }
+
+    setHelper(host, "Requesting microphone access...");
+    setButtonDisabled(micBtn, true);
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      state.stream = stream;
+      state.chunks = [];
+      state.cancelled = false;
+
+      const recorder = new MediaRecorder(stream);
+      state.recorder = recorder;
+
+      recorder.addEventListener("dataavailable", (e) => {
+        if (e.data && e.data.size > 0) state.chunks.push(e.data);
+      });
+
+      recorder.addEventListener("stop", async () => {
+        const cancelled = state.cancelled;
+        const chunks = state.chunks.slice();
+        cleanupRecording();
+        if (cancelled) {
+          setHelper(host, "Just respond with your voice and we'll turn it into text.");
+          setButtonDisabled(micBtn, false);
+          return;
+        }
+        const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+        const file = new File([blob], "voice.webm", { type: blob.type || "audio/webm" });
+        await uploadAndInsert({ host, micBtn, replyBtn, inputEl, file });
+      });
+
+      state.startedAt = Date.now();
+      const timer = host.querySelector(`#${VOICE.ids.timer}`);
+      if (timer) timer.textContent = "00:00";
+      state.timerHandle = setInterval(() => updateTimer(host), 250);
+      ensureAnalyser(host, stream);
+
+      setHelper(host, "Listening... tap Stop when you're done.");
+      setRecordingVisible(host, true);
+      setButtonDisabled(micBtn, false);
+      recorder.start();
+    } catch (err) {
+      const name = err && typeof err === "object" ? String(err.name || "") : "";
+      let msg = "Microphone permission not granted.";
+      if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+        msg = "Microphone permission not granted.";
+      } else if (name === "NotFoundError") {
+        msg = "No microphone found on this device.";
+      } else if (name === "NotReadableError") {
+        msg = "Microphone is currently in use by another app.";
+      }
+      setHelper(host, "Just respond with your voice and we'll turn it into text.");
+      showBanner(host, msg, false);
+    } finally {
+      setButtonDisabled(micBtn, false);
+    }
+  };
+
+  const attach = () => {
+    if (!isVoiceEnabled()) return;
+    ensureStyles();
+
+    const project = getProject() || {};
+    const desiredPlaceholder = textValue(project.answer_placeholder);
+    const inputEl =
+      (desiredPlaceholder &&
+        document.querySelector(`textarea[placeholder=${JSON.stringify(desiredPlaceholder)}],input[placeholder=${JSON.stringify(desiredPlaceholder)}]`)) ||
+      document.querySelector("textarea") ||
+      document.querySelector("input[type='text']") ||
+      null;
+    if (!inputEl) return;
+
+    const replyLabel = textValue(project.cta_reply) || "Send";
+    const replyNorm = normalize(replyLabel);
+
+    const findReplyNear = () => {
+      let node = inputEl.parentElement;
+      for (let depth = 0; node && node !== document.body && depth < 12; depth += 1, node = node.parentElement) {
+        const leaf = Array.from(node.querySelectorAll("div,span,p,button,a")).find((el) => {
+          if (!(el instanceof HTMLElement)) return false;
+          if (el.childElementCount !== 0) return false;
+          return normalize(el.textContent) === replyNorm;
+        });
+        if (leaf) return findClickableParent(leaf);
+      }
+      const globalLeaf = Array.from(document.querySelectorAll("div,span,p,button,a")).find((el) => {
+        if (!(el instanceof HTMLElement)) return false;
+        if (el.childElementCount !== 0) return false;
+        return normalize(el.textContent) === replyNorm;
+      });
+      return globalLeaf ? findClickableParent(globalLeaf) : null;
+    };
+
+    const replyBtn = findReplyNear();
+    if (!replyBtn) return;
+
+    const existingMic = document.getElementById(VOICE.ids.micButton);
+    if (existingMic) {
+      const isProcessing = existingMic.dataset.processing === "1";
+      if (!isProcessing) {
+        // Ensure mic stays enabled even if the UI disables other buttons.
+        // @ts-ignore
+        existingMic.disabled = false;
+        existingMic.removeAttribute("disabled");
+        existingMic.setAttribute("aria-disabled", "false");
+      }
+      return;
+    }
+
+    const micBtn = document.createElement("button");
+    micBtn.type = "button";
+    micBtn.id = VOICE.ids.micButton;
+    micBtn.setAttribute("aria-label", "Record voice");
+    micBtn.dataset.processing = "0";
+    micBtn.appendChild(createIcon());
+
+    const parent = replyBtn.parentElement;
+    if (!parent) return;
+
+    let wrap = document.getElementById(VOICE.ids.wrap);
+    if (!wrap) {
+      wrap = document.createElement("div");
+      wrap.id = VOICE.ids.wrap;
+    }
+
+    // Replace reply button position with our wrap (mic + reply).
+    if (replyBtn.parentElement === parent) {
+      parent.insertBefore(wrap, replyBtn);
+      wrap.appendChild(micBtn);
+      wrap.appendChild(replyBtn);
+    }
+
+    const host = createVoiceHost(inputEl);
+
+    const stopBtn = host.querySelector(`#${VOICE.ids.stop}`);
+    const cancelBtn = host.querySelector(`#${VOICE.ids.cancel}`);
+    const undoBtn = host.querySelector(`#${VOICE.ids.undo}`);
+    const copyBtn = host.querySelector(`#${VOICE.ids.copy}`);
+    const clearBtn = host.querySelector(`#${VOICE.ids.clear}`);
+    const retryBtn = host.querySelector(`#${VOICE.ids.bannerRetry}`);
+    const fileInput = host.querySelector(`#${VOICE.ids.fileInput}`);
+
+    micBtn.addEventListener("click", () => startRecording({ host, micBtn, replyBtn, inputEl }));
+
+    if (stopBtn) {
+      stopBtn.addEventListener("click", () => {
+        if (state.recorder && state.recorder.state !== "inactive") {
+          setHelper(host, "Turning your voice into text...");
+          setRecordingVisible(host, false);
+          setButtonDisabled(stopBtn, true);
+          try {
+            state.recorder.stop();
+          } catch {
+            cleanupRecording();
+          } finally {
+            setButtonDisabled(stopBtn, false);
+          }
+        }
+      });
+    }
+
+    if (cancelBtn) {
+      cancelBtn.addEventListener("click", () => {
+        state.cancelled = true;
+        try {
+          if (state.recorder && state.recorder.state !== "inactive") state.recorder.stop();
+        } catch {
+          cleanupRecording();
+        }
+        setRecordingVisible(host, false);
+        setHelper(host, "Just respond with your voice and we'll turn it into text.");
+      });
+    }
+
+    const doUndo = () => {
+      const cur = String(inputEl.value || "");
+      const maybeRemoved = removeInsertedSegment(cur);
+      if (maybeRemoved !== null) {
+        setInputValue(inputEl, maybeRemoved);
+      } else {
+        setInputValue(inputEl, state.beforeInsertValue || "");
+      }
+      setActionsVisible(host, false);
+      setHelper(host, "Just respond with your voice and we'll turn it into text.");
+    };
+
+    if (undoBtn) undoBtn.addEventListener("click", doUndo);
+    if (clearBtn) clearBtn.addEventListener("click", doUndo);
+
+    if (copyBtn) {
+      copyBtn.addEventListener("click", async () => {
+        const ok = await copyToClipboard(state.transcript);
+        if (!ok) return;
+        const prev = copyBtn.textContent;
+        copyBtn.textContent = "Copied";
+        setTimeout(() => {
+          copyBtn.textContent = prev;
+        }, 900);
+      });
+    }
+
+    if (retryBtn) {
+      retryBtn.addEventListener("click", () => {
+        hideBanner(host);
+        startRecording({ host, micBtn, replyBtn, inputEl });
+      });
+    }
+
+    if (fileInput) {
+      fileInput.addEventListener("change", async () => {
+        const file = fileInput.files && fileInput.files[0];
+        if (!file) return;
+        await uploadAndInsert({ host, micBtn, replyBtn, inputEl, file });
+        fileInput.value = "";
+      });
+    }
+  };
+
+  const observer = new MutationObserver(() => {
+    // Re-attach if React re-renders.
+    try {
+      attach();
+    } catch {
+      // Ignore
+    }
+  });
+
+  observer.observe(document.body, { childList: true, subtree: true });
+  attach();
+})();
+</script>
 </body>
 </html>

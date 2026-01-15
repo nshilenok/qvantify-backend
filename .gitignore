@@ -8,3 +8,4 @@ env.local
 .vercel
 node_modules/
 test-results/
+.env*.local

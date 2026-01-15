@@ -22,7 +22,7 @@ function RootLayout() {
   const logoTarget = React.useMemo(() => {
     const path = location.pathname;
     if (path.startsWith("/share/")) return path;
-    return "/admin";
+    return "/projects";
   }, [location.pathname]);
 
   return (
@@ -52,19 +52,19 @@ const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
   beforeLoad: async () => {
-    throw redirect({ to: "/admin" });
+    throw redirect({ to: "/projects" });
   },
 });
 
-const adminRoute = createRoute({
+const projectsRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/admin",
+  path: "/projects",
   component: AdminProjectsPage,
 });
 
-const adminProjectRoute = createRoute({
+const projectRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/admin/projects/$projectId",
+  path: "/projects/$projectId",
   component: AdminProjectPage,
 });
 
@@ -80,7 +80,13 @@ const sampleRoute = createRoute({
   component: SamplePage,
 });
 
-const routeTree = rootRoute.addChildren([indexRoute, adminRoute, adminProjectRoute, shareRoute, sampleRoute]);
+const routeTree = rootRoute.addChildren([
+  indexRoute,
+  projectsRoute,
+  projectRoute,
+  shareRoute,
+  sampleRoute,
+]);
 
 export const router = createRouter({
   routeTree,

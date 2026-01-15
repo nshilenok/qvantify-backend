@@ -234,6 +234,42 @@ export function SharePage() {
   const selected = detailQ.data?.session;
   const records = detailQ.data?.records || [];
   const displayRecords = records.filter((record) => (record.content ?? "").trim().length > 0);
+  interface TranscriptTopicItem {
+    type: "topic";
+    id: string;
+    label: string;
+  }
+  interface TranscriptMessageItem {
+    type: "message";
+    id: string;
+    record: (typeof displayRecords)[number];
+  }
+  type TranscriptItem = TranscriptTopicItem | TranscriptMessageItem;
+  const transcriptItems = React.useMemo<TranscriptItem[]>(() => {
+    const items: TranscriptItem[] = [];
+    const topicLabels = new Map<string, string>();
+    let lastTopicKey = "";
+    for (const record of displayRecords) {
+      const topicId = String(record.topic ?? "").trim();
+      const explicitLabel = String(record.topic_label ?? "").trim();
+      const fallbackLabel = String(record.content ?? "").trim();
+      if (topicId) {
+        if (explicitLabel) {
+          topicLabels.set(topicId, explicitLabel);
+        } else if (!topicLabels.has(topicId) && record.role === "assistant" && fallbackLabel) {
+          topicLabels.set(topicId, fallbackLabel);
+        }
+      }
+      const resolvedLabel = explicitLabel || (topicId ? topicLabels.get(topicId) : "");
+      const topicKey = topicId || resolvedLabel || "";
+      if (resolvedLabel && topicKey !== lastTopicKey) {
+        items.push({ type: "topic", id: `topic-${record.id}`, label: resolvedLabel });
+        lastTopicKey = topicKey;
+      }
+      items.push({ type: "message", id: record.id, record });
+    }
+    return items;
+  }, [displayRecords]);
 
   React.useEffect(() => {
     if (!selected) return;
@@ -898,12 +934,23 @@ export function SharePage() {
                 {/* Transcript */}
                 <div className="flex-1 overflow-y-auto p-6 bg-[var(--bg-secondary)]">
                   <div className="space-y-4">
-                    {displayRecords.map((m) => {
+                    {transcriptItems.map((item) => {
+                      if (item.type === "topic") {
+                        return (
+                          <div key={item.id} className="flex justify-center">
+                            <div className="rounded-full border border-[var(--border-default)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--text-muted)]">
+                              {item.label}
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      const m = item.record;
                       const isUser = m.role === "user";
 
                       return (
                         <div
-                          key={m.id}
+                          key={item.id}
                           className={`flex gap-3 ${isUser ? "flex-row-reverse" : ""} animate-fade-in`}
                         >
                           <RoleAvatar role={m.role} size="sm" />

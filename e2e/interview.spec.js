@@ -59,3 +59,77 @@ test("live interview journey: real backend + database", async ({ page }) => {
   await expect(input).toBeVisible();
 });
 
+test("voice UI: denied permission shows help banner (script-injected)", async ({ page }) => {
+  await page.addInitScript(() => {
+    const makeDenied = async () => {
+      const err = new Error("denied");
+      // @ts-ignore
+      err.name = "NotAllowedError";
+      throw err;
+    };
+    // @ts-ignore
+    if (!navigator.mediaDevices) navigator.mediaDevices = {};
+    // @ts-ignore
+    navigator.mediaDevices.getUserMedia = makeDenied;
+  });
+
+  const projectResponse = page.waitForResponse(
+    (response) => response.url().includes("/api/project/") && response.status() === 200
+  );
+  const respondentResponse = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/respondent/") &&
+      response.request().method() === "POST" &&
+      response.status() === 200
+  );
+
+  await page.goto(`/?interview=${encodeURIComponent(PROJECT_ID)}&external_id=${encodeURIComponent(EXTERNAL_ID)}_voice`, {
+    waitUntil: "domcontentloaded",
+  });
+
+  const projectPayload = await (await projectResponse).json();
+  expect(Array.isArray(projectPayload)).toBeTruthy();
+  expect(projectPayload.length).toBeGreaterThan(0);
+
+  const respondentPayload = await (await respondentResponse).json();
+  expect(respondentPayload.uuid).toBeTruthy();
+
+  const startButton = page.getByText(START_BUTTON_LABEL);
+  if (await startButton.isVisible().catch(() => false)) {
+    await startButton.click();
+  }
+
+  const input = page.getByRole("textbox");
+  await expect(input).toBeVisible();
+  await expect(input).toBeEnabled();
+
+  // Ensure voice is enabled in localStorage for this test without touching DB.
+  await page.evaluate(() => {
+    try {
+      const raw = localStorage.getItem("project_details");
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      const proj = Array.isArray(parsed) ? parsed[0] : parsed;
+      if (!proj || typeof proj !== "object") return;
+      proj.voice_enabled = true;
+      localStorage.setItem("project_details", JSON.stringify(Array.isArray(parsed) ? [proj] : proj));
+      // Trigger a DOM mutation so the injected observer re-runs attachment logic.
+      const d = document.createElement("div");
+      d.id = "qvantify-voice-trigger";
+      document.body.appendChild(d);
+      d.remove();
+    } catch {
+      // Ignore
+    }
+  });
+
+  const mic = page.locator('[aria-label="Record voice"]');
+  await expect(mic).toBeVisible();
+  await expect(mic).toBeEnabled();
+  await mic.click();
+
+  await expect(page.locator("#qvantify-voice-banner")).toBeVisible();
+  await expect(page.getByText(/microphone permission not granted/i)).toBeVisible();
+  await expect(page.getByText(/how to enable microphone/i)).toBeVisible();
+});
+

@@ -38,6 +38,8 @@ def test_project_config_loads():
     assert "success_message" in data[0]
     assert "abort_title" in data[0]
     assert "abort_message" in data[0]
+    assert "voice_enabled" in data[0]
+    assert isinstance(data[0]["voice_enabled"], (bool, int))
 
 
 def test_create_respondent_and_initialize_interview():
@@ -101,4 +103,33 @@ def test_reply_streaming_sse_final_event():
             assert final is not None
             assert "response" in final
             assert final.get("status") in ("open", "closed")
+
+
+def test_voice_transcribe_feature_flag_and_validation():
+    _skip_if_db_not_configured()
+    cfg = httpx.get(f"{BASE_URL}/api/project/", headers=_headers(), timeout=30).json()[0]
+    voice_enabled = bool(cfg.get("voice_enabled"))
+
+    # Create a respondent (voice endpoint requires a valid uuid).
+    r = httpx.post(
+        f"{BASE_URL}/api/respondent/",
+        headers=_headers(externalId=EXTERNAL_ID),
+        json={"email": "no@email.com", "consent": True},
+        timeout=30,
+    )
+    assert r.status_code == 200
+    user_id = r.json()["uuid"]
+
+    # Don't send a file; this should either be feature-flagged (404) or validate as missing file (400).
+    r2 = httpx.post(
+        f"{BASE_URL}/api/voice-transcribe/",
+        headers={"projectId": PROJECT_ID, "uuid": str(user_id)},
+        timeout=30,
+    )
+    if not voice_enabled:
+        assert r2.status_code == 404
+    else:
+        assert r2.status_code == 400
+        body = r2.json()
+        assert "error" in body
 

@@ -4,10 +4,12 @@ import csv
 import hashlib
 import hmac
 import io
+import tempfile
 import ipaddress
 import secrets
 from typing import Any, Dict, List, Optional
 from flask import Flask, send_from_directory, request, jsonify, g, Response, stream_with_context, session
+from flask.views import MethodView
 from flask_cors import CORS
 import logging
 
@@ -97,6 +99,177 @@ def _json_error(message: str, status: int = 400, **extra):
     return jsonify(payload), status
 
 
+class VoiceFeatureFlag:
+    @staticmethod
+    def is_enabled(project_id: Optional[str]) -> bool:
+        pid = (project_id or "").strip()
+        if not pid:
+            return False
+        db = getattr(g, "db", None)
+        if db is None:
+            return False
+        try:
+            row = db.query_database_one("SELECT voice_enabled FROM projects WHERE id=%s LIMIT 1", (pid,))
+        except Exception:
+            # Backwards-compatible: if the column doesn't exist yet, treat as disabled.
+            return False
+        return bool(row and row[0])
+
+
+class VoiceTranscriptionConfig:
+    DEFAULT_MODEL = "whisper-1"
+    DEFAULT_MAX_BYTES = 15 * 1024 * 1024
+    ALLOWED_MIME_TYPES = {
+        "audio/flac",
+        "audio/mp3",
+        "audio/mpeg",
+        "audio/mp4",
+        "audio/x-m4a",
+        "audio/m4a",
+        "audio/ogg",
+        "audio/wav",
+        "audio/webm",
+        "audio/x-wav",
+        "audio/x-flac",
+    }
+    ALLOWED_EXTENSIONS = {".flac", ".mp3", ".mp4", ".mpeg", ".m4a", ".ogg", ".wav", ".webm"}
+
+    @staticmethod
+    def model() -> str:
+        raw = (os.environ.get("VOICE_TRANSCRIPTION_MODEL") or "").strip()
+        return raw or VoiceTranscriptionConfig.DEFAULT_MODEL
+
+    @staticmethod
+    def max_bytes() -> int:
+        raw = (os.environ.get("VOICE_MAX_BYTES") or "").strip()
+        try:
+            value = int(raw) if raw else VoiceTranscriptionConfig.DEFAULT_MAX_BYTES
+        except Exception:
+            value = VoiceTranscriptionConfig.DEFAULT_MAX_BYTES
+        value = max(1024, value)
+        return DrawscapeFactorio.normalize_tokens(value)
+
+
+class VoiceTranscriptionService:
+    @staticmethod
+    def _resolve_key(project_id: Optional[str]) -> Optional[str]:
+        pid = (project_id or "").strip()
+        if pid and pid == credentials.panda_project:
+            return credentials.openaiapi_panda_key or credentials.openaiapi_key
+        return credentials.openaiapi_key
+
+    @staticmethod
+    def _safe_language(raw: Optional[str]) -> Optional[str]:
+        if not raw:
+            return None
+        value = raw.strip().lower()
+        if not value:
+            return None
+        if "-" in value:
+            value = value.split("-", 1)[0]
+        if len(value) != 2 or not value.isalpha():
+            return None
+        return value
+
+    @staticmethod
+    def _mime_base(value: str) -> str:
+        return (value or "").split(";", 1)[0].strip().lower()
+
+    @staticmethod
+    def _validate_file(file_storage) -> Optional[str]:
+        if not file_storage:
+            return "Missing audio file"
+        filename = (file_storage.filename or "").strip().lower()
+        ext = os.path.splitext(filename)[1]
+        content_type = VoiceTranscriptionService._mime_base(file_storage.mimetype or "")
+        ext_ok = (not ext) or (ext in VoiceTranscriptionConfig.ALLOWED_EXTENSIONS)
+        type_ok = (not content_type) or (content_type in VoiceTranscriptionConfig.ALLOWED_MIME_TYPES)
+        if not ext_ok and not type_ok:
+            return "Unsupported audio format"
+        return None
+
+    @staticmethod
+    def _write_temp_audio(data: bytes, ext: str) -> str:
+        suffix = ext if ext else ".webm"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(data)
+            return tmp.name
+
+    @staticmethod
+    def transcribe(file_storage, project_id: Optional[str], language: Optional[str]):
+        err = VoiceTranscriptionService._validate_file(file_storage)
+        if err:
+            return _json_error(err, 400)
+
+        api_key = VoiceTranscriptionService._resolve_key(project_id)
+        if not api_key:
+            return _json_error("OpenAI not configured", 500)
+
+        max_bytes = VoiceTranscriptionConfig.max_bytes()
+        raw = file_storage.read(max_bytes + 1)
+        file_storage.stream.seek(0)
+        byte_count = DrawscapeFactorio.normalize_tokens(len(raw))
+        if byte_count <= 0:
+            return _json_error("Empty audio file", 400)
+        if byte_count > max_bytes:
+            return _json_error("Audio file too large", 413, max_bytes=max_bytes)
+
+        filename = (file_storage.filename or "").strip().lower()
+        ext = os.path.splitext(filename)[1]
+        temp_path = VoiceTranscriptionService._write_temp_audio(raw, ext)
+
+        client = OpenAI(api_key=api_key)
+        try:
+            lang = VoiceTranscriptionService._safe_language(language)
+            with open(temp_path, "rb") as audio_file:
+                params = {"model": VoiceTranscriptionConfig.model(), "file": audio_file}
+                if lang:
+                    params["language"] = lang
+                response = client.audio.transcriptions.create(**params)
+            text = (getattr(response, "text", None) or "").strip()
+            return {"text": text}
+        except Exception as exc:
+            logger.exception("Voice transcription failed: %s", str(exc))
+            return _json_error("Transcription failed", 502)
+        finally:
+            client.close()
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+
+
+class VoiceTranscribeView(MethodView):
+    def post(self):
+        try:
+            project_id = (request.headers.get("projectId") or "").strip()
+            user_id = (request.headers.get("uuid") or "").strip()
+            if not project_id or not user_id:
+                return _json_error("Missing headers: projectId/uuid", 400)
+
+            if not VoiceFeatureFlag.is_enabled(project_id):
+                return _json_error("Not found", 404)
+
+            check_if_user_exists()
+
+            file_storage = request.files.get("audio") or request.files.get("file")
+            language = request.form.get("language") or request.args.get("language")
+            result = VoiceTranscriptionService.transcribe(file_storage, project_id, language)
+            if isinstance(result, tuple):
+                return result
+            return jsonify(result)
+        except Exception as exc:
+            logger.exception("Voice transcription error: %s", str(exc))
+            return _json_error("Transcription failed", 500)
+
+
+app.add_url_rule(
+    "/api/voice-transcribe/",
+    view_func=VoiceTranscribeView.as_view("voice_transcribe"),
+    methods=["POST"],
+)
+
+
 def _require_internal_key():
     """
     Protect internal-only endpoints (debug/heartbeat) with an env-provided key.
@@ -124,6 +297,65 @@ def _require_local_admin():
     if not (os.environ.get("ADMIN_LOCAL_KEY") or "").strip():
         return _json_error("Admin not enabled", 404)
     return None
+
+
+class AdminTopicsView(MethodView):
+    def get(self, project_id):
+        err = _require_local_admin()
+        if err:
+            return err
+
+        q = """
+          SELECT id, project, system, length, sequence, topic_type, expiration_strategy, defined_answers
+          FROM topics
+          WHERE project=%s
+          ORDER BY sequence ASC
+        """
+        rows = g.db.query_database_all(q, (project_id,))
+        topics = []
+        for row in rows:
+            topics.append(
+                {
+                    "id": str(row[0]) if row[0] is not None else None,
+                    "project": row[1],
+                    "system": row[2],
+                    "length": int(row[3]) if row[3] is not None else None,
+                    "sequence": int(row[4]) if row[4] is not None else None,
+                    "topic_type": row[5],
+                    "expiration_strategy": row[6],
+                    "defined_answers": row[7],
+                }
+            )
+        return jsonify({"topics": topics})
+
+
+class AdminTopicsLogView(MethodView):
+    def get(self, project_id):
+        err = _require_local_admin()
+        if err:
+            return err
+
+        q = """
+          SELECT tl.id, tl.topic_id, tl.user_id, tl.started_at, tl.status, tl.responses
+          FROM topics_log tl
+          JOIN respondents r ON r.id = tl.user_id
+          WHERE r.project=%s
+          ORDER BY tl.started_at DESC NULLS LAST, tl.id DESC
+        """
+        rows = g.db.query_database_all(q, (project_id,))
+        logs = []
+        for row in rows:
+            logs.append(
+                {
+                    "id": int(row[0]) if row[0] is not None else None,
+                    "topic_id": row[1],
+                    "user_id": str(row[2]) if row[2] is not None else None,
+                    "started_at": row[3].isoformat() if row[3] else None,
+                    "status": int(row[4]) if row[4] is not None else None,
+                    "responses": int(row[5]) if row[5] is not None else None,
+                }
+            )
+        return jsonify({"logs": logs})
 
 
 def _sha256_hex(value: str) -> str:
@@ -185,17 +417,21 @@ def _share_rate_limited(share_link_id: str, ip: Optional[str]) -> bool:
       SELECT COUNT(*) FROM project_share_login_attempts
       WHERE share_link_id=%s AND ip IS NOT DISTINCT FROM %s AND ok=false AND created_at >= %s
     """
-    cnt = g.db.query_database_one(q, (share_link_id, ip_val, since))
     try:
+        cnt = g.db.query_database_one(q, (share_link_id, ip_val, since))
         return int(cnt[0]) >= max_failures
-    except Exception:
+    except Exception as exc:
+        logger.warning("Share rate limit check failed: %s", str(exc))
         return False
 
 
 def _log_share_attempt(share_link_id: str, ip: Optional[str], ok: bool):
     ip_val = (ip or "").strip() or None
     q = "INSERT INTO project_share_login_attempts (share_link_id, ip, ok) VALUES (%s,%s,%s)"
-    g.db.query_database_insert(q, (share_link_id, ip_val, bool(ok)))
+    try:
+        g.db.query_database_insert(q, (share_link_id, ip_val, bool(ok)))
+    except Exception as exc:
+        logger.warning("Share login attempt log failed: %s", str(exc))
 
 
 class SessionInactivityCloser:
@@ -474,10 +710,23 @@ def create_respondent():
 @app.route('/api/project/', methods=['GET'])
 def get_project():
     project = request.headers.get('projectId')
-    query = "SELECT name,logo,colour,welcome_title,welcome_message,success_title,success_message,abort_title,abort_message,welcome_second_title,welcome_second_message,consent,cta_next,cta_reply,cta_abort,cta_restart,question_title,answer_title,answer_placeholder,loading,collect_email,email_title,email_placeholder,consent_link,skip_welcome,dark_mode,inline_consent from projects where id=%s"
     query_params = (project,)
-    project_data = g.db.query_database_one(query,query_params)
-    if project_data:
+    query = None
+    labels = None
+    try:
+        query = "SELECT name,logo,colour,welcome_title,welcome_message,success_title,success_message,abort_title,abort_message,welcome_second_title,welcome_second_message,consent,cta_next,cta_reply,cta_abort,cta_restart,question_title,answer_title,answer_placeholder,loading,collect_email,email_title,email_placeholder,consent_link,skip_welcome,dark_mode,inline_consent,voice_enabled from projects where id=%s"
+        labels = [
+        "name", "logo", "colour", "welcome_title", "welcome_message",
+        "success_title", "success_message", "abort_title", "abort_message",
+        "welcome_second_title", "welcome_second_message", "consent", "cta_next",
+        "cta_reply", "cta_abort", "cta_restart", "question_title", "answer_title",
+        "answer_placeholder", "loading", "collect_email", "email_title",
+        "email_placeholder", "consent_link", "skip_welcome", "dark_mode", "inline_consent", "voice_enabled"
+        ]
+        project_data = g.db.query_database_one(query, query_params)
+    except Exception as e:
+        logger.warning("Project config missing voice_enabled; treating as disabled: %s", str(e))
+        query = "SELECT name,logo,colour,welcome_title,welcome_message,success_title,success_message,abort_title,abort_message,welcome_second_title,welcome_second_message,consent,cta_next,cta_reply,cta_abort,cta_restart,question_title,answer_title,answer_placeholder,loading,collect_email,email_title,email_placeholder,consent_link,skip_welcome,dark_mode,inline_consent from projects where id=%s"
         labels = [
         "name", "logo", "colour", "welcome_title", "welcome_message",
         "success_title", "success_message", "abort_title", "abort_message",
@@ -486,7 +735,11 @@ def get_project():
         "answer_placeholder", "loading", "collect_email", "email_title",
         "email_placeholder", "consent_link", "skip_welcome", "dark_mode", "inline_consent"
         ]
+        project_data = g.db.query_database_one(query, query_params)
+    if project_data:
         project_dict = {label: value for label, value in zip(labels, project_data)}
+        if "voice_enabled" not in project_dict:
+            project_dict["voice_enabled"] = False
         return jsonify([project_dict])
     else:
         return jsonify({"error": "Project not found"}), 404
@@ -715,7 +968,18 @@ def findTopicChanges():
 # Results Portal: Admin (local) + Share links (customer read-only)
 # -----------------------------
 
-@app.route("/api/admin/projects", methods=["GET"])
+app.add_url_rule(
+    "/api/projects/<project_id>/topics",
+    view_func=AdminTopicsView.as_view("admin_topics"),
+    methods=["GET"],
+)
+app.add_url_rule(
+    "/api/projects/<project_id>/topics_log",
+    view_func=AdminTopicsLogView.as_view("admin_topics_log"),
+    methods=["GET"],
+)
+
+@app.route("/api/projects", methods=["GET"])
 def admin_list_projects():
     err = _require_local_admin()
     if err:
@@ -754,7 +1018,7 @@ def admin_list_projects():
     return jsonify({"projects": out})
 
 
-@app.route("/api/admin/projects/<project_id>", methods=["GET"])
+@app.route("/api/projects/<project_id>", methods=["GET"])
 def admin_get_project(project_id):
     err = _require_local_admin()
     if err:
@@ -788,6 +1052,7 @@ def admin_get_project(project_id):
         "skip_welcome",
         "dark_mode",
         "inline_consent",
+        "voice_enabled",
         "model",
         "temperature",
         "max_tokens",
@@ -900,7 +1165,7 @@ class AdminUsageStats:
             return jsonify(AdminUsageStats._build_payload(project_id, totals))
 
 
-@app.route("/api/admin/projects/<project_id>/usage", methods=["GET"])
+@app.route("/api/projects/<project_id>/usage", methods=["GET"])
 def admin_project_usage(project_id):
     return AdminUsageStats.project_usage(project_id)
 
@@ -1153,7 +1418,7 @@ class SessionSortResolver:
         return f"{last_activity} DESC NULLS LAST, {created} DESC"
 
 
-@app.route("/api/admin/projects/<project_id>/sessions", methods=["GET"])
+@app.route("/api/projects/<project_id>/sessions", methods=["GET"])
 def admin_list_sessions(project_id):
     err = _require_local_admin()
     if err:
@@ -1191,7 +1456,7 @@ def admin_list_sessions(project_id):
     return jsonify({"total": int(total or 0), "sessions": sessions})
 
 
-@app.route("/api/admin/projects/<project_id>/sessions/<respondent_id>", methods=["GET"])
+@app.route("/api/projects/<project_id>/sessions/<respondent_id>", methods=["GET"])
 def admin_get_session(project_id, respondent_id):
     err = _require_local_admin()
     if err:
@@ -1236,19 +1501,21 @@ def admin_get_session(project_id, respondent_id):
     has_record_admin = True
     try:
         q_recs = """
-          SELECT id, created_at, role, content, topic, admin_like, admin_note
-          FROM records
-          WHERE project=%s AND user_id=%s
-          ORDER BY created_at ASC
+          SELECT r.id, r.created_at, r.role, r.content, r.topic, t.system, r.admin_like, r.admin_note
+          FROM records r
+          LEFT JOIN topics t ON t.id = r.topic
+          WHERE r.project=%s AND r.user_id=%s
+          ORDER BY r.created_at ASC
         """
         rec_rows = g.db.query_database_all(q_recs, (project_id, respondent_id))
     except Exception:
         has_record_admin = False
         q_recs = """
-          SELECT id, created_at, role, content, topic
-          FROM records
-          WHERE project=%s AND user_id=%s
-          ORDER BY created_at ASC
+          SELECT r.id, r.created_at, r.role, r.content, r.topic, t.system
+          FROM records r
+          LEFT JOIN topics t ON t.id = r.topic
+          WHERE r.project=%s AND r.user_id=%s
+          ORDER BY r.created_at ASC
         """
         rec_rows = g.db.query_database_all(q_recs, (project_id, respondent_id))
     records_out = []
@@ -1261,10 +1528,11 @@ def admin_get_session(project_id, respondent_id):
             "role": r[2],
             "content": r[3],
             "topic": r[4],
+            "topic_label": r[5],
         }
         if has_record_admin:
-            record["admin_like"] = int(r[5] or 0)
-            record["admin_note"] = r[6]
+            record["admin_like"] = int(r[6] or 0)
+            record["admin_note"] = r[7]
         records_out.append(record)
 
     proj_row = None
@@ -1311,7 +1579,7 @@ def admin_get_session(project_id, respondent_id):
     )
 
 
-@app.route("/api/admin/projects/<project_id>/sessions/<respondent_id>/annotation", methods=["PUT"])
+@app.route("/api/projects/<project_id>/sessions/<respondent_id>/annotation", methods=["PUT"])
 def admin_update_session_annotation(project_id, respondent_id):
     err = _require_local_admin()
     if err:
@@ -1344,7 +1612,7 @@ def admin_update_session_annotation(project_id, respondent_id):
     return jsonify({"ok": True})
 
 
-@app.route("/api/admin/projects/<project_id>/records/<record_id>/annotation", methods=["PUT"])
+@app.route("/api/projects/<project_id>/records/<record_id>/annotation", methods=["PUT"])
 def admin_update_record_annotation(project_id, record_id):
     err = _require_local_admin()
     if err:
@@ -1442,7 +1710,7 @@ class AdminSessionDeletion:
         return DrawscapeFactorio.normalize_tokens(len(respondent_ids))
 
 
-@app.route("/api/admin/projects/<project_id>/sessions/delete", methods=["POST"])
+@app.route("/api/projects/<project_id>/sessions/delete", methods=["POST"])
 def admin_delete_sessions(project_id):
     err = _require_local_admin()
     if err:
@@ -1467,7 +1735,7 @@ def admin_delete_sessions(project_id):
     return jsonify({"ok": True, "deleted": deleted})
 
 
-@app.route("/api/admin/projects/<project_id>/share_links", methods=["GET", "POST"])
+@app.route("/api/projects/<project_id>/share_links", methods=["GET", "POST"])
 def admin_share_links(project_id):
     err = _require_local_admin()
     if err:
@@ -1551,7 +1819,7 @@ def admin_share_links(project_id):
     return jsonify({"id": str(link_id), "share_url": share_url, "share_path": share_path, "password": password})
 
 
-@app.route("/api/admin/projects/<project_id>/share_links/<link_id>/revoke", methods=["POST"])
+@app.route("/api/projects/<project_id>/share_links/<link_id>/revoke", methods=["POST"])
 def admin_revoke_share_link(project_id, link_id):
     err = _require_local_admin()
     if err:
@@ -1584,7 +1852,7 @@ def _export_records_csv(rows):
     return buf.getvalue()
 
 
-@app.route("/api/admin/projects/<project_id>/export", methods=["GET"])
+@app.route("/api/projects/<project_id>/export", methods=["GET"])
 def admin_export(project_id):
     err = _require_local_admin()
     if err:
@@ -1816,7 +2084,7 @@ def _analyze_and_store(project_id: str, respondent_id: str):
     return True, "ok"
 
 
-@app.route("/api/admin/projects/<project_id>/analyze_stale", methods=["POST"])
+@app.route("/api/projects/<project_id>/analyze_stale", methods=["POST"])
 def admin_analyze_stale(project_id):
     err = _require_local_admin()
     if err:
@@ -1912,7 +2180,12 @@ def share_login(token):
     if not isinstance(password, str) or not password:
         return _json_error("Missing field: password", 400)
 
-    ok = check_password_hash(password_hash, password)
+    try:
+        ok = check_password_hash(password_hash, password)
+    except Exception as exc:
+        logger.warning("Share login password check failed for link %s: %s", str(link_id), str(exc))
+        _log_share_attempt(str(link_id), ip, False)
+        return _json_error("Wrong password", 401)
     _log_share_attempt(str(link_id), ip, ok)
     if not ok:
         return _json_error("Wrong password", 401)
@@ -2005,10 +2278,11 @@ def share_get_session(token, respondent_id):
         return _json_error("Session not found", 404)
 
     q_recs = """
-      SELECT id, created_at, role, content, topic
-      FROM records
-      WHERE project=%s AND user_id=%s AND role <> 'system'
-      ORDER BY created_at ASC
+      SELECT r.id, r.created_at, r.role, r.content, r.topic, t.system
+      FROM records r
+      LEFT JOIN topics t ON t.id = r.topic
+      WHERE r.project=%s AND r.user_id=%s AND r.role <> 'system'
+      ORDER BY r.created_at ASC
     """
     rec_rows = g.db.query_database_all(q_recs, (project_id, respondent_id))
     records_out = []
@@ -2020,6 +2294,7 @@ def share_get_session(token, respondent_id):
                 "role": r[2],
                 "content": r[3],
                 "topic": r[4],
+                "topic_label": r[5],
             }
         )
 

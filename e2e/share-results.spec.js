@@ -7,8 +7,8 @@ const isStaticBuild =
   (parsedBaseURL.port === "" || parsedBaseURL.port === "4173");
 
 async function stubShareRoutes(page, token) {
-  // When the SPA boots at /results/, it redirects to /admin. Stub that fetch so the app stays stable.
-  await page.route("**/api/admin/projects", async (route) => {
+  // When the SPA boots at /results/, it redirects to /projects. Stub that fetch so the app stays stable.
+  await page.route("**/api/projects", async (route) => {
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ projects: [] }) });
   });
 
@@ -72,6 +72,7 @@ async function stubShareRoutes(page, token) {
             role: "assistant",
             content: "What kind of games do you enjoy most?",
             topic: "t1",
+            topic_label: "Discovery. What kind of games do you enjoy most?",
           },
           {
             id: "m2",
@@ -79,6 +80,7 @@ async function stubShareRoutes(page, token) {
             role: "user",
             content: "Stylized action RPGs with strong art direction.",
             topic: "t1",
+            topic_label: "Discovery. What kind of games do you enjoy most?",
           },
         ],
       }),

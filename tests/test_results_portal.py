@@ -14,7 +14,7 @@ def test_results_spa_serves():
 
 
 def test_results_spa_deep_link_serves():
-    r = httpx.get(f"{BASE_URL}/results/admin", timeout=30)
+    r = httpx.get(f"{BASE_URL}/results/projects", timeout=30)
     assert r.status_code == 200
     assert "Qvantify Results" in r.text
 
@@ -24,6 +24,6 @@ def test_admin_api_fails_gracefully_without_db_or_admin():
     # - 503: DB not configured/unavailable
     # - 404: admin disabled (ADMIN_LOCAL_KEY not set)
     # - 403: not local-only (if called from non-loopback)
-    r = httpx.get(f"{BASE_URL}/api/admin/projects", timeout=30)
+    r = httpx.get(f"{BASE_URL}/api/projects", timeout=30)
     assert r.status_code in (200, 403, 404, 503)
 

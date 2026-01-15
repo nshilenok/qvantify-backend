@@ -19,6 +19,31 @@ This file is the **source of truth** for what we expect to work and how we test 
 - **Session inactivity auto-close**: open sessions are marked closed when no **user input** is received for 10 minutes (checks `records.role='user'` and updates the latest `topics_log` entry). Configure with `SESSION_INACTIVITY_MINUTES`.
 - **Abort behavior**: clicking Abort sends the user to the Success screen and does not offer a restart CTA for that session.
 - **Abort copy override**: if a project sets `abort_title` and/or `abort_message`, those values replace the Success title/message when the user aborted.
+- **Voice input (feature-flagged, no live transcription)**:
+  - **Feature flag**: `projects.voice_enabled` (boolean, default `false`). When `false`:
+    - Mic UI is not shown (no change to existing sessions).
+    - `POST /api/voice-transcribe/` returns `404` to avoid leaking feature presence.
+  - **UI placement**: mic icon button is rendered next to the Reply/Send button.
+  - **Flow**:
+    - Click mic -> browser requests microphone permission.
+    - If granted: show **Listening...** state with a **volume meter** + **timer** and **Stop**/**Cancel** controls.
+    - On Stop: upload the recorded audio clip to backend -> backend transcribes full clip -> returns text.
+    - Insert text into the existing answer input; user can edit and then **Send** normally.
+    - Provide **Undo insert**, **Copy**, and **Clear voice draft** (delete generated voice text without clobbering typed input).
+  - **UX helpers**:
+    - Idle helper: "Just respond with your voice and we'll turn it into text."
+    - Processing helper: "Turning your voice into text..."
+  - **Permission denied**:
+    - Show an inline banner “Microphone permission not granted” with a **Try again** action and a “How to enable microphone” help section (desktop + iOS + Android patterns).
+    - If the browser remembers an accidental deny, explain that permissions must be changed in site settings.
+  - **Fallbacks**:
+    - If `MediaRecorder` is unavailable (some mobile browsers): allow uploading/recording an audio clip via file input (`accept=\"audio/*\" capture`) and transcribe that file.
+    - If not HTTPS/secure context: inform that microphone requires HTTPS and keep mic disabled.
+  - **Backend API**: `POST /api/voice-transcribe/` (multipart) with:
+    - headers: `projectId`, `uuid`
+    - body: `audio` file + optional `language` (ISO‑639‑1)
+    - response: `{text}` or `{error}`.
+  - **Backend config**: `VOICE_TRANSCRIPTION_MODEL` (default `whisper-1`), `VOICE_MAX_BYTES` (default 15MB).
 
 ### 2. Health & Bring-up Diagnostics
 - **Health endpoint**: `GET /api/health` returns:
@@ -53,39 +78,45 @@ This file is the **source of truth** for what we expect to work and how we test 
 - **Abort copy**:
   - `abort_title`: `Aborted`
   - `abort_message`: `You have aborted the interview. Please restart the interview and complete it. If you encounter any problems please reach to our support.`
+- **Voice input**:
+  - `voice_enabled`: `true`
 
 ### 4. Regression Test Matrix (API + FE)
 - **API (pytest)**:
   - `/api/project/`, `/api/respondent/`, `/api/interview/`, `/api/reply/` (JSON) happy path
   - `/api/reply/` streaming path: receives multiple deltas and a final event
+  - `/api/project/` includes `voice_enabled` (default false)
+  - `/api/voice-transcribe/` returns 404 when `voice_enabled=false` (feature flag safety)
   - Wrong/missing `interview` id behavior
 - **FE (Playwright, live backend)**:
   - Targets `QVANTIFY_E2E_BASE_URL` (production/staging), no API mocking
   - Interview flow: load project, create respondent, initialize interview, send reply, refresh mid-session
   - Abort flow: clicking Abort shows `abort_title`/`abort_message` when provided and hides restart CTA
+  - Voice input (when enabled for a project): mic button appears next to Reply; denied permission shows banner + help; stop -> processing -> text inserted into input
   - Results share: share login endpoint must **not** return `Missing SECRET_KEY` (live health check)
   - Runs on desktop + mobile viewports
 - **FE (Playwright, mocked UI contract)**:
   - Results Portal admin/share tests run only on local static build (mocked API responses)
+  - Admin topics tables: Topics + Topic logs cards render with sample rows
 
 ### 5. Results Portal (Admin + Customer Share Links)
 
 #### 5.1 Admin (Local-only “God Mode”)
-- **URL**: `/results/admin`
+- **URL**: `/results/projects`
 - **Security model**:
   - Admin APIs are **localhost-only** (requests must come from loopback).
   - Admin APIs are **disabled unless** `ADMIN_LOCAL_KEY` is set (value is not sent to browser; it simply toggles enablement).
 - **Admin APIs**:
-  - `GET /api/admin/projects` → list projects with session counts
-  - `GET /api/admin/projects/<project_id>/sessions` → list sessions with filters + `total`
-  - `GET /api/admin/projects/<project_id>/sessions/<respondent_id>?include_system=1` → transcript + metadata
-  - `PUT /api/admin/projects/<project_id>/sessions/<respondent_id>/annotation` → session note + like/dislike
-  - `PUT /api/admin/projects/<project_id>/records/<record_id>/annotation` → message note + like/dislike
-  - `POST /api/admin/projects/<project_id>/sessions/delete` → delete sessions by ids or by filters (supports select-all with exclusions)
-  - `GET|POST /api/admin/projects/<project_id>/share_links` → create/list customer links (returns password only at creation)
-  - `POST /api/admin/projects/<project_id>/share_links/<link_id>/revoke` → revoke link
-  - `GET /api/admin/projects/<project_id>/export?...` → export filtered matches (CSV/JSON)
-  - `POST /api/admin/projects/<project_id>/analyze_stale?inactive_minutes=10` → generate persona labels + findings summaries for stale/closed sessions
+  - `GET /api/projects` → list projects with session counts
+  - `GET /api/projects/<project_id>/sessions` → list sessions with filters + `total`
+  - `GET /api/projects/<project_id>/sessions/<respondent_id>?include_system=1` → transcript + metadata
+  - `PUT /api/projects/<project_id>/sessions/<respondent_id>/annotation` → session note + like/dislike
+  - `PUT /api/projects/<project_id>/records/<record_id>/annotation` → message note + like/dislike
+  - `POST /api/projects/<project_id>/sessions/delete` → delete sessions by ids or by filters (supports select-all with exclusions)
+  - `GET|POST /api/projects/<project_id>/share_links` → create/list customer links (returns password only at creation)
+  - `POST /api/projects/<project_id>/share_links/<link_id>/revoke` → revoke link
+  - `GET /api/projects/<project_id>/export?...` → export filtered matches (CSV/JSON)
+  - `POST /api/projects/<project_id>/analyze_stale?inactive_minutes=10` → generate persona labels + findings summaries for stale/closed sessions
 
 #### 5.1.1 Share Results Modal (Admin)
 - **Entry point**: `Share` button in the project results header.
@@ -101,7 +132,7 @@ This file is the **source of truth** for what we expect to work and how we test 
 
 #### 5.1.2 Token Usage (Admin-only)
 - **Purpose**: summarize LLM token consumption per project for billing/ops insight.
-- **API**: `GET /api/admin/projects/<project_id>/usage`
+- **API**: `GET /api/projects/<project_id>/usage`
   - Returns `total` tokens and per-service totals.
   - Returns USD estimate using `TOKEN_USD_PER_1K` rate (default `$0.01`).
   - Service mapping:
@@ -135,11 +166,28 @@ This file is the **source of truth** for what we expect to work and how we test 
   - Confirmation modal summarizes the count and warns the action is permanent.
   - Deletion removes respondents, records, topic logs, interview summaries, and usage rows.
 
+#### 5.1.6 Topics Tables (Admin-only)
+- **Purpose**: give admins full visibility into topic configuration and topic execution logs per project.
+- **API**:
+  - `GET /api/admin/projects/<project_id>/topics` → all topic rows for the project.
+  - `GET /api/admin/projects/<project_id>/topics_log` → topic log rows joined by project.
+- **Topics table columns**:
+  - `id`, `project`, `system`, `length`, `sequence`, `topic_type`, `expiration_strategy`, `defined_answers`.
+- **Topic logs table columns**:
+  - `id`, `topic_id`, `user_id`, `started_at`, `status`, `responses`.
+- **UI placement**: admin project page, below the transcript card, as two separate cards.
+- **UX details**:
+  - Each card shows a count summary and a search field (filters client-side).
+  - Columns are horizontally scrollable on small screens.
+  - ID fields are copyable; long `system` and `defined_answers` values open in a modal for full viewing.
+
 #### 5.2 Customer View (Read-only Share Link)
 - **URL**: `/results/share/<token>`
 - **Auth model**:
   - Customer enters a password once; server sets a **signed httpOnly cookie** (requires `SECRET_KEY`).
   - Customer can **view** results, **export**, and add **session-level like/dislike + notes**.
+- **Rate-limit audit fallback**:
+  - If `project_share_login_attempts` is missing/unavailable, login still works (rate limit + audit skipped, server logs a warning).
 - **Share APIs**:
   - `GET /api/share/<token>/info` → project name (for login UX)
   - `POST /api/share/<token>/login` → password gate
@@ -152,6 +200,7 @@ This file is the **source of truth** for what we expect to work and how we test 
 - **Primary accent**: brand purple (#684EAD) for highlights, focus, and key CTAs.
 - **Header**: logo-only branding using Qvantify SVG in brand purple for visibility on light backgrounds; no title/subname.
 - **Left sidebar**: sessions grouped by day, sorted latest, quick info (persona label, time, answer count, external_id). Show session/respondent ID with copy.
+- **Sidebar layout**: on desktop, **Sessions** and **Project properties** stack in the left column so the transcript panel stays aligned and no middle-column gap appears.
 - **Session sorting**: sessions can be ordered by latest/oldest activity, responses count, and external_id A-Z/Z-A.
 - **Status badges**: sessions show **Open/Closed** state in the sidebar and in the session header.
 - **Projects list**: each project card shows a copyable interview link with a test `external_id` baked into the URL.
@@ -169,6 +218,7 @@ This file is the **source of truth** for what we expect to work and how we test 
 - **Match snippets**: show matched snippet in the session list when search is active.
 - **Body**: messenger-style transcript; system prompts hidden by default (admin can toggle).
 - **Transcript cleanup**: empty/blank messages are suppressed (no placeholder bubbles).
+- **Topic separators**: transcript inserts centered grey separators for the initial topic and any topic changes, using the topic label/title from `records.topic`.
 - **Actions**:
   - **Session-level** like/dislike only
   - **Notes** auto-save live with visible status
@@ -187,7 +237,7 @@ This file is the **source of truth** for what we expect to work and how we test 
   - DB configured (`DATABASE_URL` or `DB_HOST` + `DB_PASSWORD`)
   - (Optional) `INTERNAL_API_KEY` set (enables `/api/debug` + `/api/heartbeat`)
 - Tests:
-  - `GET /results/admin` serves the Results Portal SPA
+  - `GET /results/projects` serves the Results Portal SPA
   - `GET /results/sample` serves the design preview page
   - Admin can list projects and open a project results page
 - Project results header shows copy buttons for Project ID + participation link
@@ -203,6 +253,7 @@ This file is the **source of truth** for what we expect to work and how we test 
   - Admin can regenerate link + password in the share modal
   - Customer can login via share URL, view results read-only, export CSV
 - Customer share view: notes autosave works and no client-side runtime errors
+  - Transcript shows topic separator chips when topics change (admin + share)
 
 ## Technical Architecture
 
@@ -219,7 +270,7 @@ This file is the **source of truth** for what we expect to work and how we test 
 ## Environment Configuration
 
 ### Local env file
-- Use `env.local` (not committed). Template: `env.example`.
+- Use `env.local` (not committed).
 
 ### DB Connectivity Notes (Supabase IPv6 vs IPv4)
 - Supabase **direct DB host** `db.<project_ref>.supabase.co` resolves to **IPv6** by default.
@@ -270,3 +321,10 @@ PORT=5055 python server.py
   - `OPENAI_API_KEY` set
 - Test flow:
   - Create respondent → initialize interview → send a reply → verify `records` rows are created
+
+## Release Workflow (Local-only Checks + Staging)
+
+- Run `./scripts/local-release-checks.sh` before every push.
+- (Optional) Install the pre-push hook once: `./scripts/install-git-hooks.sh`
+- Release flow:
+  - Push to `staging` → verify staging → merge `staging` → `main` for production.

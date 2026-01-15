@@ -281,6 +281,7 @@ CREATE TABLE IF NOT EXISTS projects (
     skip_welcome BOOLEAN,
     dark_mode BOOLEAN,
     inline_consent BOOLEAN,
+    voice_enabled BOOLEAN NOT NULL DEFAULT false,
     model TEXT,
     temperature FLOAT,
     max_tokens INTEGER,
@@ -291,10 +292,15 @@ CREATE TABLE IF NOT EXISTS projects (
 
 ALTER TABLE IF EXISTS projects ADD COLUMN IF NOT EXISTS abort_title TEXT;
 ALTER TABLE IF EXISTS projects ADD COLUMN IF NOT EXISTS abort_message TEXT;
+ALTER TABLE IF EXISTS projects ADD COLUMN IF NOT EXISTS voice_enabled BOOLEAN NOT NULL DEFAULT false;
 
 UPDATE projects
 SET abort_title = 'Aborted',
     abort_message = 'You have aborted the interview. Please restart the interview and complete it. If you encounter any problems please reach to our support.'
+WHERE id = 'd0aaae3f-b133-4099-a6fb-9509ed750a24';
+
+UPDATE projects
+SET voice_enabled = true
 WHERE id = 'd0aaae3f-b133-4099-a6fb-9509ed750a24';
 
 CREATE TABLE IF NOT EXISTS topics (

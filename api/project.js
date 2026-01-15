@@ -29,6 +29,7 @@ const PROJECT_FIELDS = [
   "skip_welcome",
   "dark_mode",
   "inline_consent",
+  "voice_enabled",
 ];
 
 export default async function handler(req, res) {
@@ -37,11 +38,20 @@ export default async function handler(req, res) {
   const projectId = getHeader(req, "projectId");
   if (!projectId) return json(res, 400, { error: "Missing header: projectId" });
 
-  const { data, error } = await supabase
-    .from("projects")
-    .select(PROJECT_FIELDS.join(","))
-    .eq("id", projectId)
-    .limit(1);
+  const selectFields = async (fields) =>
+    await supabase.from("projects").select(fields.join(",")).eq("id", projectId).limit(1);
+
+  let { data, error } = await selectFields(PROJECT_FIELDS);
+  if (error && PROJECT_FIELDS.includes("voice_enabled") && String(error.message || "").includes("voice_enabled")) {
+    // Backwards-compatible: if the column doesn't exist yet, retry without it and default to false.
+    const fallback = PROJECT_FIELDS.filter((f) => f !== "voice_enabled");
+    const retry = await selectFields(fallback);
+    data = retry.data;
+    error = retry.error;
+    if (Array.isArray(data) && data[0] && typeof data[0].voice_enabled === "undefined") {
+      data[0].voice_enabled = false;
+    }
+  }
 
   if (error) return json(res, 500, { error: error.message });
   if (!data || data.length === 0) return json(res, 404, { error: "Project not found" });
