@@ -21,7 +21,7 @@ const activeShareLink = {
 };
 
 async function stubAdminRoutes(page, projectId, shareLinks = [activeShareLink]) {
-  await page.route("**/api/admin/projects", async (route) => {
+  await page.route("**/api/projects", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -38,7 +38,7 @@ async function stubAdminRoutes(page, projectId, shareLinks = [activeShareLink]) 
     });
   });
 
-  await page.route(`**/api/admin/projects/${projectId}`, async (route) => {
+  await page.route(`**/api/projects/${projectId}`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -46,7 +46,7 @@ async function stubAdminRoutes(page, projectId, shareLinks = [activeShareLink]) 
     });
   });
 
-  await page.route(`**/api/admin/projects/${projectId}/usage`, async (route) => {
+  await page.route(`**/api/projects/${projectId}/usage`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -67,7 +67,7 @@ async function stubAdminRoutes(page, projectId, shareLinks = [activeShareLink]) 
     });
   });
 
-  await page.route(`**/api/admin/projects/${projectId}/share_links`, async (route) => {
+  await page.route(`**/api/projects/${projectId}/share_links`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -75,7 +75,7 @@ async function stubAdminRoutes(page, projectId, shareLinks = [activeShareLink]) 
     });
   });
 
-  await page.route(`**/api/admin/projects/${projectId}/topics`, async (route) => {
+  await page.route(`**/api/projects/${projectId}/topics`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -106,7 +106,7 @@ async function stubAdminRoutes(page, projectId, shareLinks = [activeShareLink]) 
     });
   });
 
-  await page.route(`**/api/admin/projects/${projectId}/topics_log`, async (route) => {
+  await page.route(`**/api/projects/${projectId}/topics_log`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -133,7 +133,7 @@ async function stubAdminRoutes(page, projectId, shareLinks = [activeShareLink]) 
     });
   });
 
-  await page.route(`**/api/admin/projects/${projectId}/sessions**`, async (route) => {
+  await page.route(`**/api/projects/${projectId}/sessions**`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -169,7 +169,7 @@ async function stubAdminRoutes(page, projectId, shareLinks = [activeShareLink]) 
     });
   });
 
-  await page.route(`**/api/admin/projects/${projectId}/sessions/19c86d43-0edc-4b95-9f10-cdf04e2da9b4**`, async (route) => {
+  await page.route(`**/api/projects/${projectId}/sessions/19c86d43-0edc-4b95-9f10-cdf04e2da9b4**`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -269,7 +269,7 @@ test.describe("results portal (mocked)", () => {
     await stubAdminRoutes(page, projectId);
 
     await page.route(
-      `**/api/admin/projects/${projectId}/sessions/19c86d43-0edc-4b95-9f10-cdf04e2da9b4/annotation`,
+      `**/api/projects/${projectId}/sessions/19c86d43-0edc-4b95-9f10-cdf04e2da9b4/annotation`,
       async (route) => {
         await new Promise((resolve) => setTimeout(resolve, 400));
         await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) });

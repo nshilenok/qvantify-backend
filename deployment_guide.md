@@ -70,6 +70,10 @@ Optional one-time setup to auto-run checks on every `git push`:
 - Create a second Vercel project (e.g. `qvantify-staging`) that deploys from the `staging` branch.
 - Keep the production project tied to `main`.
 - Mirror env vars (same keys as prod, per current policy).
+  - **Warning:** using production keys in staging means staging actions can affect production data. Treat staging as read-only unless you intentionally want to modify prod.
+- **Current staging preview URL** (latest deploy from `staging` branch):
+  - `https://qvantify-fullstack-lx3d698mu-nikita-shilenoks-projects.vercel.app`
+  - Note: Vercel preview URLs change on each new deployment. If you need a stable staging URL, set a Preview domain in Vercel.
 
 ### Staging smoke checklist (before promotion)
 
