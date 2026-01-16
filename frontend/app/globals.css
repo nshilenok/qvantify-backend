@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --accent: #684ead;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+}
+
+@keyframes qv-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.qv-shimmer {
+  background: linear-gradient(
+    90deg,
+    #e2e8f0 0%,
+    #e2e8f0 40%,
+    #f8fafc 50%,
+    #e2e8f0 60%,
+    #e2e8f0 100%
+  );
+  background-size: 300% 100%;
+  background-position: 200% 0;
+  animation: qv-shimmer 5.4s ease-in-out infinite;
+}
