@@ -489,7 +489,7 @@ export function SharePage() {
                 {title}
               </div>
               <div className={`text-xs truncate ${active ? "text-white/70" : "text-[var(--text-muted)]"}`}>
-                {s.answer_count} messages
+                External ID: <span className="font-mono">{s.external_id || "N/A"}</span>
               </div>
             </div>
           </div>
@@ -990,6 +990,9 @@ export function SharePage() {
                       )}
                       <div className="text-sm text-[var(--text-muted)]">
                         {filteredRecords.length} messages
+                      </div>
+                      <div className="text-xs text-[var(--text-muted)]">
+                        External ID: <span className="font-mono text-[var(--text-secondary)]">{selected.external_id || "N/A"}</span>
                       </div>
                       <div className="text-[11px] text-[var(--text-muted)]">
                         Times shown in your timezone{userTimeZone ? ` (${userTimeZone})` : ""}.

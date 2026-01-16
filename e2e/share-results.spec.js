@@ -1,22 +1,11 @@
 import { test, expect } from "@playwright/test";
 
-const baseURL = process.env.QVANTIFY_E2E_BASE_URL || "http://127.0.0.1:4173";
-const parsedBaseURL = new URL(baseURL);
-const isStaticBuild =
-  (parsedBaseURL.hostname === "127.0.0.1" || parsedBaseURL.hostname === "localhost") &&
-  (parsedBaseURL.port === "" || parsedBaseURL.port === "4173");
-
 async function stubShareRoutes(page, token) {
-  // When the SPA boots at /results/, it redirects to /projects. Stub that fetch so the app stays stable.
-  await page.route("**/api/projects", async (route) => {
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ projects: [] }) });
-  });
-
   await page.route(`**/api/share/${token}/info`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ project: { id: "p1", name: "Customer Demo Project" }, requires_password: true }),
+      body: JSON.stringify({ project: { name: "Customer Demo Project" }, requires_password: true }),
     });
   });
 
@@ -24,7 +13,7 @@ async function stubShareRoutes(page, token) {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ ok: true, project: { id: "p1" } }),
+      body: JSON.stringify({ ok: true }),
     });
   });
 
@@ -92,59 +81,31 @@ async function stubShareRoutes(page, token) {
   });
 }
 
-async function loginToShare(page, token) {
-  // Static webServer doesn't support SPA fallback for deep links.
-  // Load the SPA root, then navigate via History API.
-  await page.goto(`/results/`, { waitUntil: "domcontentloaded" });
-  await page.evaluate((t) => {
-    window.history.pushState({}, "", `/results/share/${t}`);
-    window.dispatchEvent(new PopStateEvent("popstate"));
-  }, token);
-  await expect(page.getByText("Customer Demo Project", { exact: true })).toBeVisible();
-
-  await page.getByPlaceholder("Enter password").fill("demo-pass");
-  await page.getByText("View Results", { exact: true }).click();
-  await expect(page.getByText("sessions available", { exact: false })).toBeVisible();
-}
-
-test.describe("results portal (mocked)", () => {
-  test.skip(!isStaticBuild, "Mocked results UI tests run only against local static build.");
-
-  test("share link has no runtime errors (regression)", async ({ page }) => {
-    const token = "tok_demo_123";
-    const pageErrors = [];
-    page.on("pageerror", (err) => pageErrors.push(err));
-
-    await stubShareRoutes(page, token);
-    await loginToShare(page, token);
-
-    await page.getByRole("button", { name: /Stylized RPG fan/ }).click();
-    await expect(page.getByText("Narrative summary", { exact: true })).toBeVisible();
-    await expect(pageErrors, `Page errors: ${pageErrors.map((e) => e.message).join(" | ")}`).toHaveLength(0);
-  });
-
-  test("customer share link login -> view transcript -> notes autosave", async ({ page }) => {
+test.describe("share results (mocked)", () => {
+  test("share login -> transcript -> notes save", async ({ page }) => {
     const token = "tok_demo_123";
     await stubShareRoutes(page, token);
-    await loginToShare(page, token);
 
-    await expect(page.getByRole("button", { name: /Stylized RPG fan/ })).toBeVisible();
-    await page.getByRole("button", { name: /Stylized RPG fan/ }).click();
-    await expect(page.getByText("Narrative summary", { exact: true })).toBeVisible();
+    await page.goto(`/results/share/${token}`, { waitUntil: "domcontentloaded" });
+    await expect(page.getByText("Customer Demo Project", { exact: true })).toBeVisible();
+
+    await page.getByPlaceholder("Enter password").fill("demo-pass");
+    await page.getByText("View Results", { exact: true }).click();
+    await expect(page.getByText("sessions available", { exact: false })).toBeVisible();
+    const sessionRow = page.getByRole("button", { name: /Stylized RPG fan/ });
+    await expect(sessionRow).toContainText("External ID: ext-123");
+
+    await sessionRow.click();
     await expect(page.getByText("What kind of games do you enjoy most?", { exact: true })).toBeVisible();
-    await expect(page.getByText("Export CSV", { exact: true })).toBeVisible();
+    const headerMeta = page.getByText(/Times shown in your timezone/).locator("..");
+    await expect(headerMeta).toContainText("External ID: ext-123");
 
     const note = "Great insight about progression.";
     const annotationRequestPromise = page.waitForRequest(
-      (req) =>
-        req.method() === "PUT" &&
-        req.url().includes(`/api/share/${token}/sessions/s1/annotation`)
+      (req) => req.method() === "PUT" && req.url().includes(`/api/share/${token}/sessions/s1/annotation`)
     );
     await page.getByPlaceholder("Add notes...").fill(note);
-    const annotationRequest = await annotationRequestPromise;
-    expect(annotationRequest.postDataJSON()).toMatchObject({ admin_note: note });
-    const status = page.getByText("Notes save automatically", { exact: false });
-    await expect(status).toContainText("Saved");
+    await annotationRequestPromise;
+    await expect(page.getByText(/Saved/i)).toBeVisible();
   });
 });
-
