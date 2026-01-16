@@ -367,8 +367,8 @@ export default function InterviewClient() {
 
   if (!projectId) {
     return (
-      <div className="min-h-screen min-h-[100svh] bg-[#f7f7f7]">
-        <div className="mx-auto flex min-h-screen min-h-[100svh] w-full max-w-xl flex-col items-center justify-center px-10 pb-10 pt-8 text-center">
+      <div className="flex min-h-[100svh] bg-[#f7f7f7]">
+        <div className="mx-auto flex w-full max-w-xl flex-1 flex-col items-center justify-center px-10 pb-10 pt-8 text-center box-border">
           <h1 className="text-sm font-semibold text-slate-900">Missing interview link</h1>
           <p className="mt-2 text-sm leading-6 text-slate-600">Please check the URL and try again.</p>
         </div>
@@ -378,8 +378,8 @@ export default function InterviewClient() {
 
   if (projectLoading || !project) {
     return (
-      <div className="min-h-screen min-h-[100svh] bg-[#f7f7f7]">
-        <div className="flex min-h-screen min-h-[100svh] items-center justify-center px-10 pb-10 pt-8 text-sm text-slate-600">
+      <div className="flex min-h-[100svh] bg-[#f7f7f7]">
+        <div className="flex flex-1 items-center justify-center px-10 pb-10 pt-8 text-sm text-slate-600 box-border">
           Loading interview…
         </div>
       </div>
@@ -388,7 +388,7 @@ export default function InterviewClient() {
 
   if (phase === "welcome") {
     return (
-      <div style={{ "--accent": accent } as CSSProperties} className="min-h-screen min-h-[100svh] bg-[#f7f7f7]">
+      <div style={{ "--accent": accent } as CSSProperties} className="flex min-h-[100svh] bg-[#f7f7f7]">
         <WelcomeScreen project={project} isStarting={isStarting} onStart={startInterview} />
       </div>
     );
@@ -396,7 +396,7 @@ export default function InterviewClient() {
 
   if (phase === "success") {
     return (
-      <div style={{ "--accent": accent } as CSSProperties} className="min-h-screen min-h-[100svh] bg-[#f7f7f7]">
+      <div style={{ "--accent": accent } as CSSProperties} className="flex min-h-[100svh] bg-[#f7f7f7]">
         <SuccessScreen
           project={project}
           aborted={aborted}
@@ -419,8 +419,8 @@ export default function InterviewClient() {
 
   if (phase === "error") {
     return (
-      <div className="min-h-screen min-h-[100svh] bg-[#f7f7f7]">
-        <div className="mx-auto flex min-h-screen min-h-[100svh] w-full max-w-xl flex-col items-center justify-center px-10 pb-10 pt-8 text-center">
+      <div className="flex min-h-[100svh] bg-[#f7f7f7]">
+        <div className="mx-auto flex w-full max-w-xl flex-1 flex-col items-center justify-center px-10 pb-10 pt-8 text-center box-border">
           <h1 className="text-sm font-semibold text-slate-900">Something went wrong</h1>
           <p className="mt-2 text-sm leading-6 text-red-500">{error || "Please try again later."}</p>
         </div>
@@ -429,9 +429,9 @@ export default function InterviewClient() {
   }
 
   return (
-    <div style={{ "--accent": accent } as CSSProperties} className="min-h-screen min-h-[100svh] bg-[#f7f7f7]">
+    <div style={{ "--accent": accent } as CSSProperties} className="flex min-h-[100svh] flex-col bg-[#f7f7f7]">
       <ProgressBar progress={progress} accent={accent} />
-      <div className="mx-auto flex min-h-screen min-h-[100svh] w-full max-w-2xl flex-col px-10 pb-10 pt-8">
+      <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-10 pb-10 pt-8 box-border">
         <div className="flex justify-end">
           <button
             type="button"

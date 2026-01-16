@@ -33,7 +33,7 @@ export default function WelcomeScreen({ project, isStarting, onStart }: WelcomeS
   };
 
   return (
-    <div className="mx-auto flex min-h-screen min-h-[100svh] w-full max-w-2xl flex-col px-10 pb-10 pt-8">
+    <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-10 pb-10 pt-8 box-border">
       <div className="mb-10 flex flex-col gap-3">
         {project.logo && (
           <img src={project.logo} alt={project.name || "Project logo"} className="h-10 w-auto" />
