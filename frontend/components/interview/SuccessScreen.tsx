@@ -18,7 +18,7 @@ export default function SuccessScreen({ project, aborted, onRestart }: SuccessSc
   const restartLabel = textValue(project.cta_restart);
 
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-10 pb-10 pt-8 text-center">
+    <div className="mx-auto flex min-h-screen min-h-[100svh] w-full max-w-xl flex-col items-center justify-center px-10 pb-10 pt-8 text-center">
       {title && <h1 className="text-sm font-semibold text-slate-900">{title}</h1>}
       {message && <p className="mt-3 text-sm leading-6 text-slate-600">{message}</p>}
       {restartLabel && onRestart && (
