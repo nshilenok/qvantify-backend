@@ -61,7 +61,7 @@ export default function WelcomeScreen({ project, isStarting, onStart }: WelcomeS
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               placeholder={textValue(project.email_placeholder)}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none focus:border-transparent focus:ring-2 focus:ring-[var(--accent)]"
+              className="rounded-xl border border-slate-200 px-3 py-2 text-base text-slate-900 outline-none focus:border-transparent focus:ring-2 focus:ring-[var(--accent)] sm:text-sm"
             />
           </label>
         )}

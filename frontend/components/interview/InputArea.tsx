@@ -52,7 +52,7 @@ export default function InputArea({ project, projectId, uuid, isSending, onSend 
         placeholder={placeholder}
         rows={4}
         disabled={isSending}
-        className={`min-h-[140px] w-full resize-none rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm leading-6 text-slate-900 outline-none transition disabled:opacity-60 ${
+        className={`min-h-[140px] w-full resize-none rounded-lg border border-slate-200 bg-white px-4 py-3 text-base leading-6 text-slate-900 outline-none transition disabled:opacity-60 sm:text-sm ${
           isRecording ? "ring-2 ring-[var(--accent)] ring-offset-2 animate-pulse" : ""
         }`}
         onKeyDown={(event) => {
