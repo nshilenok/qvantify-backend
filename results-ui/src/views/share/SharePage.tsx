@@ -1,3 +1,5 @@
+"use client";
+
 import * as React from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
@@ -56,7 +58,7 @@ function formatDate(dateStr: string): string {
 }
 
 export function SharePage() {
-  const { token } = useParams({ from: "/share/$token" });
+  const { token = "" } = useParams({ from: "/share/$token" });
 
   const infoQ = useQuery({
     queryKey: ["share", "info", token],
@@ -509,7 +511,7 @@ export function SharePage() {
         <div className="glass-card rounded-3xl max-w-md w-full animate-scale-in">
           <div className="p-8">
             <div className="mb-6">
-              <Link to="/share/$token" params={{ token }} aria-label="Shared results landing">
+              <Link to={`/results/share/${token}`} aria-label="Shared results landing">
                 <img
                   src="https://cdn.prod.website-files.com/64cfa0ffd93ac106369335fa/64cfa57b8416a474a5c3d68f_Qvantify.svg"
                   alt="Qvantify"

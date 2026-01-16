@@ -1,6 +1,9 @@
+"use client";
+
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
+import { useParams } from "@tanstack/react-router";
 import {
   adminGetProject,
   adminGetProjectUsage,
@@ -88,7 +91,7 @@ function formatUsd(value: number): string {
 }
 
 export function AdminProjectPage() {
-  const { projectId } = useParams({ from: "/projects/$projectId" });
+  const { projectId = "" } = useParams({ from: "/projects/$projectId" });
 
   const [search, setSearch] = React.useState("");
   const [topicSearch, setTopicSearch] = React.useState("");
@@ -985,7 +988,7 @@ export function AdminProjectPage() {
       <div className="mb-6">
         <div className="flex items-center gap-2 text-sm mb-2">
           <Link
-            to="/projects"
+            to="/results/projects"
             className="flex items-center gap-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
