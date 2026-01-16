@@ -75,7 +75,56 @@ const proxyRequest = async (request: Request, context: RouteContext) => {
   responseHeaders.delete("content-length");
 
   const requestPath = new URL(request.url).pathname;
+  const isProjectConfig =
+    request.method === "GET" && (requestPath === "/api/project" || requestPath === "/api/project/");
+  const isVoiceTranscribe =
+    requestPath === "/api/voice-transcribe" || requestPath === "/api/voice-transcribe/";
   const isShareLogin = requestPath.includes("/api/share/") && requestPath.endsWith("/login");
+
+  if (isProjectConfig) {
+    const text = await upstream.text();
+    if (upstream.ok && responseHeaders.get("content-type")?.includes("application/json")) {
+      try {
+        const data = JSON.parse(text);
+        if (Array.isArray(data)) {
+          let changed = false;
+          const normalized = data.map((item) => {
+            if (item && typeof item === "object" && !("voice_enabled" in item)) {
+              changed = true;
+              return { ...item, voice_enabled: false };
+            }
+            return item;
+          });
+          if (changed) {
+            responseHeaders.delete("content-encoding");
+            return new Response(JSON.stringify(normalized), {
+              status: upstream.status,
+              statusText: upstream.statusText,
+              headers: responseHeaders,
+            });
+          }
+        }
+      } catch {
+        // Fall through to return upstream body as-is.
+      }
+    }
+    responseHeaders.delete("content-encoding");
+    return new Response(text, {
+      status: upstream.status,
+      statusText: upstream.statusText,
+      headers: responseHeaders,
+    });
+  }
+
+  if (isVoiceTranscribe && upstream.status === 405) {
+    responseHeaders.delete("content-encoding");
+    responseHeaders.set("content-type", "application/json");
+    return new Response(JSON.stringify({ error: "Not found" }), {
+      status: 404,
+      statusText: upstream.statusText,
+      headers: responseHeaders,
+    });
+  }
   if (isShareLogin && upstream.status >= 500) {
     const text = await upstream.text();
     if (text.includes("Missing SECRET_KEY")) {
