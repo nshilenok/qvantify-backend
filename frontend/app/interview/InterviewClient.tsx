@@ -60,7 +60,7 @@ export default function InterviewClient() {
   const shimmerStyle = useMemo(
     () => ({
       backgroundImage:
-        "linear-gradient(90deg, #e2e8f0 0%, #e2e8f0 40%, #f8fafc 50%, #e2e8f0 60%, #e2e8f0 100%)",
+        "linear-gradient(90deg, #e5e5e5 0%, #e5e5e5 40%, #efefef 50%, #e5e5e5 60%, #e5e5e5 100%)",
       backgroundSize: "300% 100%",
       backgroundPosition: "200% 0",
       animation: "qv-shimmer 5.4s ease-in-out infinite",
@@ -367,8 +367,8 @@ export default function InterviewClient() {
 
   if (!projectId) {
     return (
-      <div className="min-h-screen bg-white">
-        <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col justify-center px-10 pb-10 pt-8 text-center">
+      <div className="min-h-screen bg-[#f7f7f7]">
+        <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-10 pb-10 pt-8 text-center">
           <h1 className="text-sm font-semibold text-slate-900">Missing interview link</h1>
           <p className="mt-2 text-sm leading-6 text-slate-600">Please check the URL and try again.</p>
         </div>
@@ -378,7 +378,7 @@ export default function InterviewClient() {
 
   if (projectLoading || !project) {
     return (
-      <div className="min-h-screen bg-white">
+      <div className="min-h-screen bg-[#f7f7f7]">
         <div className="flex min-h-screen items-center justify-center px-10 pb-10 pt-8 text-sm text-slate-600">
           Loading interview…
         </div>
@@ -388,7 +388,7 @@ export default function InterviewClient() {
 
   if (phase === "welcome") {
     return (
-      <div style={{ "--accent": accent } as CSSProperties} className="min-h-screen bg-white">
+      <div style={{ "--accent": accent } as CSSProperties} className="min-h-screen bg-[#f7f7f7]">
         <WelcomeScreen project={project} isStarting={isStarting} onStart={startInterview} />
       </div>
     );
@@ -396,7 +396,7 @@ export default function InterviewClient() {
 
   if (phase === "success") {
     return (
-      <div style={{ "--accent": accent } as CSSProperties} className="min-h-screen bg-white">
+      <div style={{ "--accent": accent } as CSSProperties} className="min-h-screen bg-[#f7f7f7]">
         <SuccessScreen
           project={project}
           aborted={aborted}
@@ -419,8 +419,8 @@ export default function InterviewClient() {
 
   if (phase === "error") {
     return (
-      <div className="min-h-screen bg-white">
-        <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col justify-center px-10 pb-10 pt-8 text-center">
+      <div className="min-h-screen bg-[#f7f7f7]">
+        <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-10 pb-10 pt-8 text-center">
           <h1 className="text-sm font-semibold text-slate-900">Something went wrong</h1>
           <p className="mt-2 text-sm leading-6 text-red-500">{error || "Please try again later."}</p>
         </div>
@@ -429,13 +429,13 @@ export default function InterviewClient() {
   }
 
   return (
-    <div style={{ "--accent": accent } as CSSProperties} className="min-h-screen bg-white">
+    <div style={{ "--accent": accent } as CSSProperties} className="min-h-screen bg-[#f7f7f7]">
       <ProgressBar progress={progress} accent={accent} />
       <div className="mx-auto flex min-h-screen w-full max-w-2xl flex-col px-10 pb-10 pt-8">
         <div className="flex justify-end">
           <button
             type="button"
-            className="cursor-pointer text-sm font-normal text-slate-400 underline underline-offset-4 transition hover:text-slate-500"
+            className="cursor-pointer text-xs font-normal text-slate-400 transition hover:text-slate-500"
             onClick={() => {
               setAborted(true);
               setPhase("success");

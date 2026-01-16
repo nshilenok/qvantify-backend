@@ -84,7 +84,7 @@ export default function WelcomeScreen({ project, isStarting, onStart }: WelcomeS
           type="button"
           onClick={handleStart}
           disabled={isStarting}
-          className="cursor-pointer rounded-full px-5 py-2 text-sm font-semibold text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-70"
+          className="w-fit cursor-pointer rounded px-5 py-2 text-sm font-semibold text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-70"
           style={{ backgroundColor: accent }}
         >
           {textValue(project.cta_next)}
