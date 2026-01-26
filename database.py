@@ -107,13 +107,33 @@ class DB:
 			records.append(record_row)
 		return records
 
-	def store_message(self,role,message):
+	def store_message(self,role,message,voice_input=False,audio_tokens=0):
 		now = datetime.now(timezone.utc)
 		if role == 'user':
 			topic = g.baseTopic
 		else:
 			topic = g.topic
-		query = "INSERT INTO records (created_at,project,role,content,topic,user_id) VALUES (%s,%s,%s,%s,%s,%s)"
-		query_params = (now,g.projectId,role,message,topic,g.uuid)
+		voice_flag = bool(voice_input)
+		token_count = int(audio_tokens or 0)
+		if role == 'user':
+			voice_flag = bool(getattr(g, "voice_input", voice_flag))
+			token_count = int(getattr(g, "audio_tokens", token_count) or 0)
+		else:
+			voice_flag = False
+			token_count = 0
+		query = "INSERT INTO records (created_at,project,role,content,topic,user_id,voice_input,audio_tokens) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)"
+		query_params = (now,g.projectId,role,message,topic,g.uuid,voice_flag,token_count)
 		logger.debug('===Topic ID (message storing) (role: %s)===: %s', role, topic)
-		self.query_database_insert(query,query_params)
+		try:
+			self.query_database_insert(query,query_params)
+		except Exception as e:
+			err_text = str(e)
+			if "voice_input" in err_text or "audio_tokens" in err_text:
+				fallback_query = "INSERT INTO records (created_at,project,role,content,topic,user_id) VALUES (%s,%s,%s,%s,%s,%s)"
+				fallback_params = (now,g.projectId,role,message,topic,g.uuid)
+				self.query_database_insert(fallback_query,fallback_params)
+			else:
+				raise
+		if role == 'user':
+			setattr(g, "voice_input", False)
+			setattr(g, "audio_tokens", 0)

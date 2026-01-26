@@ -199,6 +199,55 @@ export function SharePage() {
     },
     [userTimeZone]
   );
+  const formatSidebarDateTime = React.useCallback(
+    (value?: string | null) => {
+      if (!value) return "";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "";
+      const options: Intl.DateTimeFormatOptions = {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      };
+      if (userTimeZone) options.timeZone = userTimeZone;
+      const parts = new Intl.DateTimeFormat("en-GB", options).formatToParts(date);
+      const lookup: Record<string, string> = {};
+      for (const part of parts) {
+        lookup[part.type] = part.value;
+      }
+      const day = lookup.day;
+      const month = lookup.month?.toLowerCase();
+      const year = lookup.year;
+      const hour = lookup.hour;
+      const minute = lookup.minute;
+      if (!day || !month || !year || !hour || !minute) {
+        return new Intl.DateTimeFormat("en-GB", options).format(date).replace(",", "");
+      }
+      return `${day} ${month} ${year} ${hour}:${minute}`;
+    },
+    [userTimeZone]
+  );
+  const formatTimeAgo = React.useCallback((value?: string | null) => {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    const diffMs = Date.now() - date.getTime();
+    if (diffMs <= 0) return "just now";
+    const minutes = Math.floor(diffMs / 60000);
+    if (minutes < 1) return "just now";
+    if (minutes < 60) return `${minutes} min ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours} hr ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 30) return `${days} day${days === 1 ? "" : "s"} ago`;
+    const months = Math.floor(days / 30);
+    if (months < 12) return `${months} mo ago`;
+    const years = Math.floor(months / 12);
+    return `${years} yr ago`;
+  }, []);
 
   const sessionFilters = React.useMemo(() => {
     const byField = new Map<FilterField, FilterRow>();
@@ -468,6 +517,8 @@ export function SharePage() {
     const active = s.id === selectedId;
     const title = s.persona_label || "Session";
     const ts = s.last_activity_at || s.created_at;
+    const dateTimeLabel = formatSidebarDateTime(ts);
+    const timeAgoLabel = formatTimeAgo(ts);
     const snippet = search ? s.match_snippet : null;
     return (
       <button
@@ -494,7 +545,12 @@ export function SharePage() {
             </div>
           </div>
           <div className={`shrink-0 text-right text-xs ${active ? "text-white/70" : "text-[var(--text-muted)]"}`}>
-            <div>{formatLocalTime(ts)}</div>
+            <div>{dateTimeLabel}</div>
+            {timeAgoLabel && (
+              <div className={`mt-1 text-[11px] ${active ? "text-white/70" : "text-[var(--text-subtle)]"}`}>
+                {timeAgoLabel}
+              </div>
+            )}
             <div
               className={`mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
                 active
