@@ -173,6 +173,7 @@ export function SharePage() {
   const [noteDraft, setNoteDraft] = React.useState("");
   const [noteStatus, setNoteStatus] = React.useState<"idle" | "saving" | "saved" | "error">("idle");
   const noteSaveTimer = React.useRef<number | null>(null);
+  const [hasMounted, setHasMounted] = React.useState(false);
 
   const copyText = async (value: string) => {
     try {
@@ -188,6 +189,9 @@ export function SharePage() {
     () => Intl.DateTimeFormat().resolvedOptions().timeZone || "",
     []
   );
+  React.useEffect(() => {
+    setHasMounted(true);
+  }, []);
   const formatLocalTime = React.useCallback(
     (value?: string | null) => {
       if (!value) return "";
@@ -518,7 +522,7 @@ export function SharePage() {
     const title = s.persona_label || "Session";
     const ts = s.last_activity_at || s.created_at;
     const dateTimeLabel = formatSidebarDateTime(ts);
-    const timeAgoLabel = formatTimeAgo(ts);
+    const timeAgoLabel = hasMounted ? formatTimeAgo(ts) : "";
     const snippet = search ? s.match_snippet : null;
     return (
       <button
