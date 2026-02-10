@@ -1,7 +1,6 @@
 from flask import g
 from llmInterface import LLM
 import logging
-import re
 import credentials
 import autoTopic
 
@@ -48,67 +47,8 @@ class conversation():
 						row[2],
 						row[3]
 					)
-			records.append(record_row)
+				records.append(record_row)
 			return records
-
-		def _get_topic_meta(self, topic_id):
-			if not topic_id:
-				return None
-			query = 'SELECT id, title, system, "group", sequence FROM topics WHERE id=%s'
-			query_params = (topic_id,)
-			row = self.DB.query_database_one(query, query_params)
-			if not row:
-				return None
-			return {
-				"id": row[0],
-				"title": row[1],
-				"system": row[2],
-				"group": row[3],
-				"sequence": row[4],
-			}
-
-		def _get_remaining_groups(self, current_sequence):
-			if current_sequence is None:
-				return []
-			query = 'SELECT "group" FROM topics WHERE project=%s AND sequence > %s ORDER BY sequence ASC'
-			query_params = (self.project, current_sequence)
-			rows = self.DB.query_database_all(query, query_params)
-			seen = set()
-			remaining = []
-			for row in rows:
-				group = (row[0] or "").strip()
-				if not group or group in seen:
-					continue
-				seen.add(group)
-				remaining.append(group)
-			return remaining
-
-		def _build_prompt_context(self, topic_id):
-			meta = self._get_topic_meta(topic_id)
-			if not meta:
-				return {}
-			remaining_groups = self._get_remaining_groups(meta.get("sequence"))
-			return {
-				"group": meta.get("group") or "",
-				"title": meta.get("title") or "",
-				"system": meta.get("system") or "",
-				"groups.remaining": ", ".join(remaining_groups),
-			}
-
-		def _render_prompt_template(self, template, topic_id):
-			if not template:
-				return template
-			context = self._build_prompt_context(topic_id)
-			if not context:
-				return template
-
-			def replace(match):
-				key = match.group(1).strip()
-				if key in context:
-					return str(context[key])
-				return match.group(0)
-
-			return re.sub(r"\(\(([A-Za-z0-9_.-]+)\)\)", replace, template)
 
 		def retrieveConverasationHistory(self):
 			records = self.retrieveRecords()
@@ -120,7 +60,7 @@ class conversation():
 					continue
 				roles.append(message[1])
 				if message[1] == "system":
-					content.append(message[2] + '\n \n' + self.getDefaultPrompt(message[3]))
+					content.append(message[2] + '\n \n' + self.getDefaultPrompt())
 				else:
 					content.append(message[2])
 			for role, cont in zip(roles, content):
@@ -128,12 +68,14 @@ class conversation():
 				history.append(entry)
 			return history
 
-		def getDefaultPrompt(self, topic_id=None):
+		def getDefaultPrompt(self):
 			query = "SELECT default_prompt FROM projects WHERE id=%s"
 			query_params = (g.projectId,)
 			results = self.DB.query_database_one(query,query_params)[0]
-			prompt = results or credentials.default_prompt
-			return self._render_prompt_template(prompt, topic_id or g.topic)
+			if results:
+				return results
+			else:
+				return credentials.default_prompt
 
 
 		def provideResponse(self,user_input=None):
@@ -190,11 +132,7 @@ class conversation():
 				return self.retrieveTopic()
 
 			elif promptType == "single_question" and getattr(g, 'topicIsChanging', None) is None:
-				history = self.retrieveConverasationHistory()
-				if not history:
-					self.DB.store_message("assistant", self.retrieveTopic())
-					return self.retrieveTopic()
-				return history[-1]["content"]
+				return self.retrieveConverasationHistory()[-1]['content']
 
 		def provideInitialResponse(self):
 			promptType = self.topic_instance.getTopicType(g.topic)
@@ -291,17 +229,9 @@ class conversation():
 
 			else:
 				logger.debug('===Retrieving history:===')
-				history = self.retrieveConverasationHistory()
-				if not history:
-					if promptType in ("prompt", "auto"):
-						history = [{"role": "system", "content": system_prompt}]
-						self.DB.store_message("system", system_prompt)
-						response = chatGPT.getResponse(history)
-						self.DB.store_message("assistant", response.choices[0].message.content)
-						return response.choices[0].message.content
-					if promptType == "single_question":
-						self.DB.store_message("assistant", self.retrieveTopic())
-						return self.retrieveTopic()
-				return history[-1]["content"]
+				return self.retrieveConverasationHistory()[-1]['content']
+
+
+
 
 

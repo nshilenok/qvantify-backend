@@ -1,6 +1,6 @@
 export type ApiError = { error: string; [k: string]: unknown };
 
-const configuredBase = (process.env.NEXT_PUBLIC_QVANTIFY_BASE_URL || "").replace(/\/$/, "");
+const configuredBase = (import.meta.env.VITE_QVANTIFY_BASE_URL || "").replace(/\/$/, "");
 const runtimeBase = typeof window === "undefined" ? "" : window.location.origin;
 const apiBase = configuredBase || runtimeBase;
 

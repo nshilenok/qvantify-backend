@@ -41,7 +41,7 @@ export interface InterviewResponse {
   progress?: ProgressState;
 }
 
-export type ReplyResponse = InterviewResponse;
+export interface ReplyResponse extends InterviewResponse {}
 
 export interface RespondentResponse {
   uuid: string;

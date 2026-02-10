@@ -5,40 +5,43 @@ This file is the **source of truth** for what we expect to work and how we test 
 ## Product Features
 
 ### 1. Interview / Conversation Flow (Web)
-- **Frontend**: Next.js App Router app in `frontend/` (deployed to Vercel). `/` redirects to `/interview`, preserving query params.
-- **API proxy**: `/api/*` requests are proxied by `frontend/app/api/[...path]/route.ts` to the Flask backend on Railway (`QVANTIFY_RAILWAY_URL`).
-- **Project config load**: `GET /api/project` returns project UI config (labels, theme, consent copy, etc.).
-- **Respondent creation**: `POST /api/respondent` creates a respondent row and returns a UUID.
-- **Interview initialization**: `GET /api/interview` returns the first assistant response (or continues flow).
+- **Frontend**: Pre-built static web bundle served from `static/` by `server.py`.
+- **Project config load**: `GET /api/project/` returns project UI config (labels, theme, consent copy, etc.).
+- **Respondent creation**: `POST /api/respondent/` creates a respondent row and returns a UUID.
+- **Interview initialization**: `GET /api/interview/` returns the first assistant response (or continues flow).
 - **Ongoing conversation**:
-  - `POST /api/reply` (JSON) stores user + assistant messages into `records` and returns `{response,status,answers}`.
-  - `POST /api/reply` (streaming SSE over fetch) when client sends `Accept: text/event-stream` or JSON `{stream:true}`:
+  - `POST /api/reply/` (JSON) stores user + assistant messages into `records` and returns `{response,status,answers}`.
+  - `POST /api/reply/` (streaming SSE over fetch) when client sends `Accept: text/event-stream` or JSON `{stream:true}`:
     - streams `{"type":"delta","delta":"..."}` events
     - ends with `{"type":"final","response":"...","status":"open|closed","answers":[...]}`.
 - **OpenAI gpt-5.***: `max_tokens` is translated to `max_completion_tokens` to avoid 400 errors.
 - **Topic switching**: `topic.py` advances topics using `topics` + `topics_log`.
-- **Progress bar**: a 2px top line on the respondent interview UI shows `current_topic_index / total_topics`, using the project primary color and updating after `/api/interview` and `/api/reply` (only renders when progress data is present).
+- **Progress bar**: a 2px top line on the respondent interview UI shows `current_topic_index / total_topics`, using the project primary color and updating after `/api/interview/` and `/api/reply/`.
 - **Session inactivity auto-close**: open sessions are marked closed when no **user input** is received for 10 minutes (checks `records.role='user'` and updates the latest `topics_log` entry). Configure with `SESSION_INACTIVITY_MINUTES`.
 - **Abort behavior**: clicking Abort sends the user to the Success screen and does not offer a restart CTA for that session.
 - **Abort copy override**: if a project sets `abort_title` and/or `abort_message`, those values replace the Success title/message when the user aborted.
-- **Voice input (feature-flagged)**:
+- **Voice input (feature-flagged, no live transcription)**:
   - **Feature flag**: `projects.voice_enabled` (boolean, default `false`). When `false`:
     - Mic UI is not shown (no change to existing sessions).
     - `POST /api/voice-transcribe/` returns `404` to avoid leaking feature presence.
-  - **UI placement**: mic icon button is rendered next to the Reply/Send button inside the input pill.
+- **Config resolution**: voice UI reads cached `project_details`; if missing, it fetches `/api/project/` using `projectId` from the URL and caches the result before attaching.
+  - **UI placement**: mic icon button is rendered next to the Reply/Send button.
   - **Flow**:
     - Click mic -> browser requests microphone permission.
-    - While recording: input container glows and mic icon switches to a red stop square.
-    - Click stop -> upload the recorded audio clip to backend -> backend transcribes full clip -> returns text.
-    - Transcript is appended to any existing draft text (no auto-clear).
+    - If granted: show **Listening...** state with a **volume meter** + **timer** and **Stop**/**Cancel** controls.
+    - On Stop: upload the recorded audio clip to backend -> backend transcribes full clip -> returns text.
+    - Insert text into the existing answer input; user can edit and then **Send** normally.
+    - Provide **Undo insert**, **Copy**, and **Clear voice draft** (delete generated voice text without clobbering typed input).
   - **Capture tuning**: request `echoCancellation`, `noiseSuppression`, and `autoGainControl` for better distance pickup.
   - **UX helpers**:
-    - Idle helper: "Tap the mic to record. Tap again to stop."
+    - Idle helper: "Just respond with your voice and we'll turn it into text."
     - Processing helper: "Turning your voice into text..."
-    - Permission errors: inline helper text (e.g. "Microphone permission not granted.").
+  - **Permission denied**:
+    - Show an inline banner “Microphone permission not granted” with a **Try again** action and a “How to enable microphone” help section (desktop + iOS + Android patterns).
+    - If the browser remembers an accidental deny, explain that permissions must be changed in site settings.
   - **Fallbacks**:
-    - If `MediaRecorder` is unavailable (some mobile browsers): allow uploading/recording an audio clip via file input (`accept="audio/*" capture`) and transcribe that file.
-    - If not HTTPS/secure context: show "Microphone requires HTTPS." and keep mic disabled.
+    - If `MediaRecorder` is unavailable (some mobile browsers): allow uploading/recording an audio clip via file input (`accept=\"audio/*\" capture`) and transcribe that file.
+    - If not HTTPS/secure context: inform that microphone requires HTTPS and keep mic disabled.
   - **Backend API**: `POST /api/voice-transcribe/` (multipart) with:
     - headers: `projectId`, `uuid`
     - body: `audio` file + optional `language` (ISO‑639‑1)
@@ -55,33 +58,22 @@ This file is the **source of truth** for what we expect to work and how we test 
 - **Internal key**:
   - `/api/debug` and `/api/heartbeat` require `INTERNAL_API_KEY` (passed as `?key=...`).
   - If `INTERNAL_API_KEY` is unset, these endpoints are disabled (return `404`).
-- **Frontend without DB**: Next routes (`/interview`, `/results/*`) should render (loading/error states) even if DB is down.
+- **Frontend without DB**: Static routes (`/`, `/static/...`) must work even if DB is down.
 
 ### 3. Sample Project (Seeded in DB)
 - **Project ID**: `sample_game_funnel_2026_01_14`
-- **Entry URL**: `/interview?interview=sample_game_funnel_2026_01_14&external_id=sample@user.com` (root `/?interview=...` redirects here)
+- **Entry URL**: `/?interview=sample_game_funnel_2026_01_14&external_id=sample@user.com`
 - **Topics**:
   - `single_question` × 6 (start + 5 sample questions)
   - `auto` (final): asks missing follow-ups and then calls the tool to switch/end when appropriate
 - **Success message**: thanks the user and confirms session recording + support follow-up + agreed complement.
-
-### 4. Public Landing Demo: Research Journey (Seeded in DB)
-- **Project name**: `Qvantify Demo — Research Journey`
-- **Project ID**: `33c9a74a-93ad-4a50-b78b-58bc83533c44`
-- **Entry URL (prod)**: `/?interview=33c9a74a-93ad-4a50-b78b-58bc83533c44` (or `/interview?interview=...`)
-- **Welcome message**: explicitly states this is a demo interview about the user’s research needs.
-- **Topics**:
-  - `auto` × 11 (timeline-style continuous discovery / JTBD interview)
-  - Starts with: “Tell me about the last time you had to do research” and then goes step-by-step (“what happened next?”)
-  - Includes derail correction (clarify + steer back to the concrete timeline)
-  - Includes anti-spam / anti-jailbreak behavior: the assistant ends the demo interview and stops asking questions
 
 ### 5. SweepKing JTBD Interview (Seeded in DB)
 - **Project name**: `SweepKing`
 - **Project ID**: `d0aaae3f-b133-4099-a6fb-9509ed750a24`
 - **No welcome page**: `skip_welcome=true`
 - **Collect email**: `collect_email=false` (uses `external_id` instead)
-- **Entry URL example**: `/interview?interview=d0aaae3f-b133-4099-a6fb-9509ed750a24&external_id=sk_user_001` (root `/?interview=...` redirects here)
+- **Entry URL example**: `/?interview=d0aaae3f-b133-4099-a6fb-9509ed750a24&external_id=sk_user_001`
 - **Topics**:
   - `auto` × 25 (one per question)
   - Each topic’s `system` stores: `<question> + "\\n\\nCurrent Theme: <group theme>"`
@@ -94,21 +86,22 @@ This file is the **source of truth** for what we expect to work and how we test 
 
 ### 4. Regression Test Matrix (API + FE)
 - **API (pytest)**:
-  - `/api/project`, `/api/respondent`, `/api/interview`, `/api/reply` (JSON) happy path
-  - `/api/reply` streaming path: receives multiple deltas and a final event
-  - `/api/project` includes `voice_enabled` (default false)
-  - `/api/voice-transcribe` returns 404 when `voice_enabled=false` (feature flag safety)
+  - `/api/project/`, `/api/respondent/`, `/api/interview/`, `/api/reply/` (JSON) happy path
+  - `/api/reply/` streaming path: receives multiple deltas and a final event
+  - `/api/project/` includes `voice_enabled` (default false)
+  - `/api/voice-transcribe/` returns 404 when `voice_enabled=false` (feature flag safety)
   - Wrong/missing `interview` id behavior
-- **FE (Playwright, mocked UI contract)**:
-  - Targets local Next dev server (default `http://127.0.0.1:4173`) with route stubs
-  - Interview flow: project load, respondent creation, interview init, reply send, assistant response render
-  - Voice input: mic appears when `voice_enabled=true`, denied permission shows inline helper text
-  - Results Portal admin/share tests run on mocked API responses (projects list, project detail, share login)
-  - Admin topics tables: Topics + Topic logs cards render with sample rows
-  - Runs on desktop + mobile viewports
 - **FE (Playwright, live backend)**:
-  - Optional smoke checks gated by env (e.g. `QVANTIFY_E2E_BASE_URL`)
-  - Share login endpoint must **not** return `Missing SECRET_KEY` (live health check)
+  - Targets `QVANTIFY_E2E_BASE_URL` (production/staging), no API mocking
+  - Interview flow: load project, create respondent, initialize interview, send reply, refresh mid-session
+  - Progress bar: visible once the interview question loads and updates after replies
+  - Abort flow: clicking Abort shows `abort_title`/`abort_message` when provided and hides restart CTA
+  - Voice input (when enabled for a project): mic button appears next to Reply; denied permission shows banner + help; stop -> processing -> text inserted into input
+  - Results share: share login endpoint must **not** return `Missing SECRET_KEY` (live health check)
+  - Runs on desktop + mobile viewports
+- **FE (Playwright, mocked UI contract)**:
+  - Results Portal admin/share tests run only on local static build (mocked API responses)
+  - Admin topics tables: Topics + Topic logs cards render with sample rows
 
 ### 5. Results Portal (Admin + Customer Share Links)
 
@@ -227,7 +220,6 @@ This file is the **source of truth** for what we expect to work and how we test 
 - **Primary accent**: brand purple (#684EAD) for highlights, focus, and key CTAs.
 - **Header**: logo-only branding using Qvantify SVG in brand purple for visibility on light backgrounds; no title/subname.
 - **Left sidebar**: sessions grouped by day, sorted latest, quick info (persona label, time, answer count, external_id). Show session/respondent ID with copy.
-- **Session timestamps**: each sidebar row shows a full local date/time stamp (e.g. `17 feb 2025 17:30`) plus a relative time label (e.g. `27 min ago`).
 - **Sidebar layout**: on desktop, **Sessions** and **Project properties** stack in the left column so the transcript panel stays aligned and no middle-column gap appears.
 - **Session sorting**: sessions can be ordered by latest/oldest activity, responses count, and external_id A-Z/Z-A.
 - **Status badges**: sessions show **Open/Closed** state in the sidebar and in the session header.
@@ -287,15 +279,13 @@ This file is the **source of truth** for what we expect to work and how we test 
 
 ## Technical Architecture
 
-### Frontend
-- **Next.js app**: `frontend/` (App Router) provides `/interview` and `/results` experiences.
-- **Root redirect**: `/` redirects to `/interview` while preserving query params.
-- **API proxy**: `frontend/app/api/[...path]/route.ts` proxies `/api/*` to Railway (`QVANTIFY_RAILWAY_URL`) and sets `x-qvantify-proxy-base` for traceability.
-- **Legacy static**: `static/` contains the old bundle (kept for reference; not the primary frontend).
-
 ### Backend
-- **Flask app**: `server.py` serves the API on Railway.
+- **Flask app**: `server.py` serves both frontend + API.
 - **DB**: `database.py` (psycopg2) with env-only config in `credentials.py` (loads `env.local`/`.env` via `python-dotenv`).
+- **Vercel routing**:
+  - `/api/*` is proxied by a Vercel Node function (`api/[...path].cjs`) to `QVANTIFY_RAILWAY_URL`.
+  - Debug header `x-qvantify-proxy-base` is added to proxied responses to confirm which backend is used (staging vs prod).
+  - `/` serves `static/index.html` (static bundle).
 
 ### Database (Supabase Postgres)
 - **Schema source**: `database_schema.sql`
@@ -334,17 +324,17 @@ This file is the **source of truth** for what we expect to work and how we test 
 
 ## Test Checklist (Local)
 
-### A. Frontend + API boot
+### A. Server boots + frontend serves
 
-- **Frontend (Next.js)**:
-  - `cd frontend`
-  - `npm run dev -- --port 4173`
-  - Expect `http://127.0.0.1:4173/interview?interview=<project_id>&external_id=sample@user.com` to render
-- **Backend (Flask API)**:
-  - `cd ..`
-  - `source .venv/bin/activate`
-  - `PORT=5055 python server.py`
-  - Expect `GET http://127.0.0.1:5055/api/health` → `200`
+```bash
+cd "/Users/nikitashilenok/Documents/vibecoding projects/qvantify-fullstack"
+source .venv/bin/activate
+PORT=5055 python server.py
+```
+
+- Expect:
+  - `GET http://127.0.0.1:5055/` → `200`
+  - `GET http://127.0.0.1:5055/api/health` → `200`
 
 ### B. DB-required endpoints behave correctly
 - If DB is not configured or unreachable, DB-required endpoints should return `503 Database unavailable` (not crash).
@@ -356,10 +346,6 @@ This file is the **source of truth** for what we expect to work and how we test 
   - `OPENAI_API_KEY` set
 - Test flow:
   - Create respondent → initialize interview → send a reply → verify `records` rows are created
-
-### D. E2E (Playwright)
-- `npx playwright test` (starts the Next dev server on `4173`)
-- Expect 12 passed, 2 skipped (live-share check requires env)
 
 ## Release Workflow (Local-only Checks + Staging)
 

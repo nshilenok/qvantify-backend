@@ -19,7 +19,7 @@ def _headers(**extra):
 
 def _skip_if_db_not_configured():
     try:
-        r = httpx.get(f"{BASE_URL}/api/health", timeout=10, follow_redirects=True)
+        r = httpx.get(f"{BASE_URL}/api/health", timeout=10)
         if r.status_code != 200:
             pytest.skip("Server health unavailable")
         data = r.json()
@@ -31,7 +31,7 @@ def _skip_if_db_not_configured():
 
 def test_project_config_loads():
     _skip_if_db_not_configured()
-    r = httpx.get(f"{BASE_URL}/api/project/", headers=_headers(), timeout=30, follow_redirects=True)
+    r = httpx.get(f"{BASE_URL}/api/project/", headers=_headers(), timeout=30)
     assert r.status_code == 200
     data = r.json()
     assert isinstance(data, list) and len(data) == 1
@@ -49,7 +49,6 @@ def test_create_respondent_and_initialize_interview():
         headers=_headers(externalId=EXTERNAL_ID),
         json={"email": "no@email.com", "consent": True},
         timeout=30,
-        follow_redirects=True,
     )
     assert r.status_code == 200
     out = r.json()
@@ -57,12 +56,7 @@ def test_create_respondent_and_initialize_interview():
     assert out["projectId"] == PROJECT_ID
     uuid.UUID(str(user_id))  # validates format
 
-    r2 = httpx.get(
-        f"{BASE_URL}/api/interview/",
-        headers=_headers(uuid=str(user_id)),
-        timeout=30,
-        follow_redirects=True,
-    )
+    r2 = httpx.get(f"{BASE_URL}/api/interview/", headers=_headers(uuid=str(user_id)), timeout=30)
     assert r2.status_code == 200
     body = r2.json()
     assert body["status"] in ("open", "closed")
@@ -77,22 +71,16 @@ def test_reply_streaming_sse_final_event():
         headers=_headers(externalId=EXTERNAL_ID),
         json={"email": "no@email.com", "consent": True},
         timeout=30,
-        follow_redirects=True,
     )
     user_id = r.json()["uuid"]
 
     # Initialize to ensure topics_log exists
-    _ = httpx.get(
-        f"{BASE_URL}/api/interview/",
-        headers=_headers(uuid=str(user_id)),
-        timeout=30,
-        follow_redirects=True,
-    )
+    _ = httpx.get(f"{BASE_URL}/api/interview/", headers=_headers(uuid=str(user_id)), timeout=30)
 
     final = None
     deltas = 0
 
-    with httpx.Client(timeout=60, follow_redirects=True) as client:
+    with httpx.Client(timeout=60) as client:
         with client.stream(
             "POST",
             f"{BASE_URL}/api/reply/",
@@ -119,12 +107,7 @@ def test_reply_streaming_sse_final_event():
 
 def test_voice_transcribe_feature_flag_and_validation():
     _skip_if_db_not_configured()
-    cfg = httpx.get(
-        f"{BASE_URL}/api/project/",
-        headers=_headers(),
-        timeout=30,
-        follow_redirects=True,
-    ).json()[0]
+    cfg = httpx.get(f"{BASE_URL}/api/project/", headers=_headers(), timeout=30).json()[0]
     voice_enabled = bool(cfg.get("voice_enabled"))
 
     # Create a respondent (voice endpoint requires a valid uuid).
@@ -133,7 +116,6 @@ def test_voice_transcribe_feature_flag_and_validation():
         headers=_headers(externalId=EXTERNAL_ID),
         json={"email": "no@email.com", "consent": True},
         timeout=30,
-        follow_redirects=True,
     )
     assert r.status_code == 200
     user_id = r.json()["uuid"]
@@ -143,7 +125,6 @@ def test_voice_transcribe_feature_flag_and_validation():
         f"{BASE_URL}/api/voice-transcribe/",
         headers={"projectId": PROJECT_ID, "uuid": str(user_id)},
         timeout=30,
-        follow_redirects=True,
     )
     if not voice_enabled:
         assert r2.status_code == 404
@@ -151,3 +132,4 @@ def test_voice_transcribe_feature_flag_and_validation():
         assert r2.status_code == 400
         body = r2.json()
         assert "error" in body
+

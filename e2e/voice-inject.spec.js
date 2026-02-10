@@ -1,7 +1,14 @@
 import { test, expect } from "@playwright/test";
 
-test("voice button appends transcript into input", async ({ page }) => {
+test("voice script injects mic and inserts transcript", async ({ page }) => {
   await page.addInitScript(() => {
+    try {
+      localStorage.removeItem("project_details");
+      localStorage.setItem("uuid", JSON.stringify("test-uuid"));
+    } catch {
+      // ignore
+    }
+
     class FakeRecorder {
       constructor(stream) {
         this.stream = stream;
@@ -48,7 +55,7 @@ test("voice button appends transcript into input", async ({ page }) => {
       });
   });
 
-  await page.route("**/api/project", async (route) => {
+  await page.route("**/api/project/", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -57,31 +64,13 @@ test("voice button appends transcript into input", async ({ page }) => {
           voice_enabled: true,
           cta_reply: "Send",
           answer_placeholder: "Type your answer",
-          cta_next: "Start",
-          skip_welcome: true,
           colour: "#684EAD",
         },
       ]),
     });
   });
 
-  await page.route("**/api/respondent", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ uuid: "test-uuid", projectId: "test_project" }),
-    });
-  });
-
-  await page.route("**/api/interview", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ response: "Hello there", status: "open", progress: { current: 1, total: 4, ratio: 0.25 } }),
-    });
-  });
-
-  await page.route("**/api/voice-transcribe", async (route) => {
+  await page.route("**/api/voice-transcribe/", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -89,22 +78,28 @@ test("voice button appends transcript into input", async ({ page }) => {
     });
   });
 
-  await page.goto("/interview?interview=test_project", { waitUntil: "domcontentloaded" });
+  await page.goto("/?interview=test_project", { waitUntil: "domcontentloaded" });
 
-  const startButton = page.getByRole("button", { name: /start/i });
-  if (await startButton.isVisible().catch(() => false)) {
-    await startButton.click();
-  }
+  await page.evaluate(() => {
+    const input = document.createElement("input");
+    input.type = "text";
+    input.placeholder = "Type your answer";
 
-  const mic = page.getByRole("button", { name: "Record voice" });
+    const button = document.createElement("button");
+    button.textContent = "Send";
+
+    const wrap = document.createElement("div");
+    wrap.appendChild(input);
+    wrap.appendChild(button);
+    document.body.appendChild(wrap);
+  });
+
+  const mic = page.locator("#qvantify-mic-btn");
   await expect(mic).toBeVisible();
+
   await mic.click();
+  await expect(page.locator("#qvantify-voice-helper")).toContainText("Listening");
 
-  const stop = page.getByRole("button", { name: "Stop recording" });
-  await expect(stop).toBeVisible();
-  await stop.click();
-
-  const textarea = page.getByRole("textbox");
-  await expect(textarea).toHaveValue(/Hello from voice/);
+  await page.locator("#qvantify-voice-stop").click();
+  await expect(page.locator("input[type='text']")).toHaveValue(/Hello from voice/);
 });
-
