@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Safety checks before promoting staging to production."""
+"""Safety checks before promoting staging to production.
+
+Policy guardrails:
+- never create a new Vercel project for frontend releases,
+- never use temporary public domain assignments,
+- keep app/staging domains on qvantify-frontend only.
+"""
 
 from __future__ import annotations
 
@@ -10,6 +16,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 
 @dataclass
@@ -18,6 +25,7 @@ class SafetyConfig:
     allow_dirty: bool
     allow_divergence: bool
     skip_alias_check: bool
+    expected_frontend_project: str
 
 
 class ReleaseSafetyChecker:
@@ -33,12 +41,14 @@ class ReleaseSafetyChecker:
         parser.add_argument("--allow-dirty", action="store_true")
         parser.add_argument("--allow-divergence", action="store_true")
         parser.add_argument("--skip-alias-check", action="store_true")
+        parser.add_argument("--expected-frontend-project", default="qvantify-frontend")
         args = parser.parse_args()
         return SafetyConfig(
             repo_path=Path(args.repo_path).resolve(),
             allow_dirty=args.allow_dirty,
             allow_divergence=args.allow_divergence,
             skip_alias_check=args.skip_alias_check,
+            expected_frontend_project=args.expected_frontend_project,
         )
 
     def run(self) -> int:
@@ -49,6 +59,7 @@ class ReleaseSafetyChecker:
             raise RuntimeError(f"Repo path does not exist: {self.config.repo_path}")
         self._check_dirty_tree()
         self._check_branch_divergence()
+        self._check_frontend_project_binding()
         if not self.config.skip_alias_check:
             self._check_domain_aliases()
         print("Release safety check passed.")
@@ -91,6 +102,21 @@ class ReleaseSafetyChecker:
                 + (result.stderr or "")
             )
         print(result.stdout.strip())
+
+    def _check_frontend_project_binding(self) -> None:
+        project_file = self.config.repo_path / "frontend" / ".vercel" / "project.json"
+        if not project_file.exists():
+            raise RuntimeError(
+                f"Missing frontend Vercel project link file: {project_file}"
+            )
+        payload: dict[str, Any] = json.loads(project_file.read_text())
+        project_name = payload.get("projectName")
+        if project_name != self.config.expected_frontend_project:
+            raise RuntimeError(
+                "Frontend is linked to an unexpected Vercel project. "
+                f"expected={self.config.expected_frontend_project} got={project_name}. "
+                "Policy: do not create new Vercel projects for frontend deploys."
+            )
 
     def _git(self, *args: str) -> str:
         result = subprocess.run(

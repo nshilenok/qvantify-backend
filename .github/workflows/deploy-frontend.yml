@@ -1,4 +1,8 @@
 name: deploy-frontend
+# Policy:
+# - Never create new Vercel projects; use qvantify-frontend only.
+# - Never use temporary public domain assignments.
+# - app.qvantify.com and staging.app.qvantify.com must stay on qvantify-frontend.
 
 on:
   push:
@@ -34,6 +38,9 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: vercel link --cwd frontend --project qvantify-frontend --scope nikita-shilenoks-projects --yes --token "$VERCEL_TOKEN"
+
+      - name: Verify linked Vercel project is qvantify-frontend
+        run: python3 -c "import json; d=json.load(open('frontend/.vercel/project.json')); assert d.get('projectName')=='qvantify-frontend', f'Unexpected project: {d}'"
 
       - name: Deploy frontend preview
         env:

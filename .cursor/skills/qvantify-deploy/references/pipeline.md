@@ -1,5 +1,12 @@
 # Qvantify Deployment Runbook (Detailed)
 
+## Policy (hard rules)
+
+- Never create new Vercel projects. Only `qvantify-frontend` is allowed.
+- Never use temporary domain assignments for public access. Only `app.qvantify.com` and `staging.app.qvantify.com` are valid entry domains.
+- App/staging domains are owned exclusively by `qvantify-frontend`.
+- If alias drift happens, re-point the stable domains to the correct `qvantify-frontend-*` deployment immediately.
+
 ## A) Quick Verify Commands
 
 ```bash

@@ -1,8 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "builds": [
-    { "src": "api/[...path].cjs", "use": "@vercel/node" },
-    { "src": "static/**", "use": "@vercel/static" }
+    { "src": "api/[...path].cjs", "use": "@vercel/node" }
   ],
   "rewrites": [
     {
@@ -12,16 +11,6 @@
     {
       "source": "/api/:path*",
       "destination": "/api/[...path].cjs?path=:path*"
-    },
-    { "source": "/favicon.ico", "destination": "/static/favicon.ico" },
-    { "source": "/favicon-16.png", "destination": "/static/favicon-16.png" },
-    { "source": "/favicon-32.png", "destination": "/static/favicon-32.png" },
-    { "source": "/asset-manifest.json", "destination": "/static/asset-manifest.json" },
-    { "source": "/static/:path*", "destination": "/static/static/:path*" },
-    { "source": "/results/assets/:path*", "destination": "/static/results/assets/:path*" },
-    { "source": "/results/:path*", "destination": "/static/results/index.html" },
-    { "source": "/", "destination": "/static/index.html" },
-    { "source": "/:path*", "destination": "/static/index.html" }
+    }
   ]
 }
-
