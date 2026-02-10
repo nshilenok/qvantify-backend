@@ -276,7 +276,7 @@ This file is the **source of truth** for what we expect to work and how we test 
   - DB configured (`DATABASE_URL` or `DB_HOST` + `DB_PASSWORD`)
   - (Optional) `INTERNAL_API_KEY` set (enables `/api/debug` + `/api/heartbeat`)
 - Tests:
-  - `GET /results/projects` serves the Results Portal SPA
+  - `GET /results/projects` serves the Next.js Results Portal
   - `GET /results/sample` serves the design preview page
   - Admin can list projects and open a project results page
 - Project results header shows copy buttons for Project ID + participation link
@@ -305,7 +305,7 @@ This file is the **source of truth** for what we expect to work and how we test 
 - **Next.js app**: `frontend/` (App Router) provides `/interview` and `/results` experiences.
 - **Root redirect**: `/` redirects to `/interview` while preserving query params.
 - **API proxy**: `frontend/app/api/[...path]/route.ts` proxies `/api/*` to Railway (`QVANTIFY_RAILWAY_URL`) and sets `x-qvantify-proxy-base` for traceability.
-- **Legacy static**: `static/` contains the old bundle (kept for reference; not the primary frontend).
+- **Legacy static removed**: no `static/` frontend bundle remains in this repo.
 
 ### Backend
 - **Flask app**: `server.py` serves the API on Railway.
@@ -380,9 +380,10 @@ This file is the **source of truth** for what we expect to work and how we test 
 - Run `./scripts/local-release-checks.sh` before every push.
 - Run `python3 scripts/release_safety_check.py --repo-path .` before promotion.
 - (Optional) Install the pre-push hook once: `./scripts/install-git-hooks.sh`
-- Frontend ownership:
+- Frontend ownership and policy:
   - `qvantify-frontend` serves both `staging.app.qvantify.com` and `app.qvantify.com`.
-  - `qvantify-fullstack` is legacy/static only and must not own app/staging domains.
+  - Never create a new Vercel project for frontend delivery.
+  - Never use temporary public domain assignments; only stable app/staging domains are allowed.
 - Release flow:
   - Push to `staging` -> deploy frontend from `frontend/` to `staging.app.qvantify.com` -> verify staging -> merge `staging` -> `main` -> promote the same staging frontend deployment to `app.qvantify.com`.
 - Rollback safety:
@@ -391,10 +392,7 @@ This file is the **source of truth** for what we expect to work and how we test 
 
 ## Engineering Guardrails (Agent Rules)
 
-- Cursor rules are intentionally minimal and active:
-  - `.cursor/rules/isolation_rules/Core/memory-bank-paths.mdc`
-  - `.cursor/rules/general-typescript-node-js-next-js-app-router-react-rule.mdc`
-  - `.cursor/rules/general-python-rules.mdc`
+- Project-level guardrails are intentionally minimal and centralized.
 - Python policy baseline:
   - Keep backend changes compatible with Python `3.11` (matches `Dockerfile` and CI).
   - Use `requirements.txt` with `pip` for dependency management unless an explicit migration is requested.

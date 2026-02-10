@@ -8,7 +8,7 @@ import tempfile
 import ipaddress
 import secrets
 from typing import Any, Dict, List, Optional
-from flask import Flask, send_from_directory, request, jsonify, g, Response, stream_with_context, session
+from flask import Flask, request, jsonify, g, Response, stream_with_context, session
 from flask.views import MethodView
 from flask_cors import CORS
 import logging
@@ -35,8 +35,8 @@ if platform.system() == 'Linux':
     from heartbeat import heartbeat
 from drawscape_factorio import DrawscapeFactorio
 
-# Create Flask app that serves both frontend and backend
-app = Flask(__name__, static_folder='static', static_url_path='')
+# Create Flask app for backend API only
+app = Flask(__name__)
 CORS(app)
 
 # Signed cookies (share-link auth). Keep secrets in env.local / platform vars only.
@@ -669,58 +669,6 @@ def close_connection(exception):
     db = getattr(g, 'db', None)
     if db is not None:
         g.db.close()
-
-# Frontend routes - serve React app
-@app.route('/')
-@app.route('/<path:path>')
-def serve_frontend(path=''):
-    # --- debug log ---
-    try:
-        import json as _json
-        from datetime import datetime as _dt
-        payload = {
-            "sessionId": "debug-session",
-            "runId": "run1",
-            "hypothesisId": "H5",
-            "location": "server.py:serve_frontend",
-            "message": "serve_frontend",
-            "data": {"path": path, "request_path": request.path},
-            "timestamp": int(_dt.now().timestamp() * 1000),
-        }
-        with open(
-            "/Users/nikitashilenok/Documents/vibecoding projects/qvantify-fullstack/.cursor/debug.log",
-            "a",
-            encoding="utf-8",
-        ) as f:
-            f.write(_json.dumps(payload) + "\n")
-    except Exception:
-        pass
-    # --- end debug log ---
-    if path.startswith('api/'):
-        return jsonify(error="Not found"), 404
-    if path and os.path.isfile(os.path.join(app.static_folder, path)):
-        return send_from_directory(app.static_folder, path)
-    return send_from_directory(app.static_folder, 'index.html')
-
-
-# Results Portal SPA routes (more specific than Flask's built-in static route).
-@app.route("/results", defaults={"path": ""})
-@app.route("/results/", defaults={"path": ""})
-@app.route("/results/<path:path>")
-def serve_results_frontend(path: str):
-    results_dir = os.path.join(app.static_folder, "results")
-    index_path = os.path.join(results_dir, "index.html")
-    if not os.path.isfile(index_path):
-        return jsonify(error="Results UI not built"), 404
-
-    # Serve file if it exists (e.g. /results/assets/*)
-    if path:
-        abs_path = os.path.join(results_dir, path)
-        if os.path.isfile(abs_path):
-            return send_from_directory(results_dir, path)
-
-    # SPA fallback
-    return send_from_directory(results_dir, "index.html")
 
 # Health endpoint (no DB required)
 @app.route('/api/health', methods=['GET'])

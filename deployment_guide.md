@@ -45,10 +45,17 @@ This repo uses one frontend Vercel project and two backend Railway environments.
 - Vercel project `qvantify-frontend` = only real frontend domains:
   - `staging.app.qvantify.com`
   - `app.qvantify.com`
-- Vercel project `qvantify-fullstack` = legacy/static only, never used for app/staging domains.
 - Railway:
   - staging backend = `https://qvantify-staging.up.railway.app`
   - production backend = `https://qvantify.up.railway.app`
+
+### Deployment policy (enforced)
+
+- Never create new Vercel projects for frontend deployment. Use only `qvantify-frontend`.
+- Never use temporary public domain assignments. Use only stable domains `app.qvantify.com` and `staging.app.qvantify.com`.
+- Keep domain ownership on `qvantify-frontend` only:
+  - `app.qvantify.com` must target `production`
+  - `staging.app.qvantify.com` must target `preview`
 
 ### Local checks (run before every push)
 
@@ -109,7 +116,7 @@ python3 scripts/rollback_domains.py --snapshot "ops/checkpoints/checkpoint-<rele
 
 - `GET /api/health` returns `200`
 - `POST /api/share/<token>/login` does **not** return `Missing SECRET_KEY`
-- `GET /results/` serves the Results UI
+- `python3 scripts/verify_domain_aliases.py` passes
 
 ### Promotion checklist
 

@@ -40696,7 +40696,7 @@ The plan assumes a clean separation but doesn’t specify how to avoid routing c
 ---
 
 ### 3) **Results Portal migration needs explicit strategy**
-`results-ui` is a Vite SPA today, and its routing + API calls assume `/results/*` static host.  
+The legacy results stack was a Vite SPA with `/results/*` static-host assumptions.  
 When moved into Next.js, we need a migration path:
 
 - Reuse existing components (possible)
@@ -40728,7 +40728,7 @@ If you want this plan ready to execute, I recommend adding:
 
 1) **Branch + commit rule**: “Commit all current changes to `staging` branch and push before any scaffold.”  
 2) **Deployment split**: “Frontend deployed as separate Vercel project rooted at `/frontend`.”  
-3) **Explicit Results migration steps**: “Reuse components from `results-ui/src` into `/frontend/app/results/*`.”  
+3) **Explicit Results migration steps**: “Reuse legacy results components into `/frontend/app/results/*`.”  
 4) **Voice API contract**: “Voice transcribe request uses headers `projectId` + `uuid`, mime type enforced.”  
 5) **Test matrix**: “Live staging voice test + local mocked voice test.”
 

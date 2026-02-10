@@ -1,11 +1,11 @@
 # Qvantify Backend
 
-Flask backend for the Qvantify app (serves API + the built React build from `static/`).
+Flask backend for the Qvantify app API. The user-facing frontend is the Next.js app in `frontend/`.
 
 ## Overview
 
 - **Backend**: Python + Flask (`server.py`)
-- **Frontend**: prebuilt static assets served from `static/`
+- **Frontend**: Next.js App Router in `frontend/` (Vercel)
 - **Database**: PostgreSQL (Supabase-compatible). Schema is in `database_schema.sql`.
 - **AI**: OpenAI/Azure OpenAI chat completions via `llmInterface.py`
 
@@ -17,7 +17,7 @@ Notes:
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
 │   Frontend      │    │   Railway       │    │   Supabase      │
-│   (React Web)   │◄──►│   (Flask App)   │◄──►│   (PostgreSQL)  │
+│   (Next.js)     │◄──►│   (Flask API)   │◄──►│   (PostgreSQL)  │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
                               │
                               ▼
@@ -90,6 +90,11 @@ This repo uses **manual promotion** via branches:
 Staging preview URL:
 - Use the latest Vercel Preview deployment for the `staging` branch (Vercel → Deployments → filter by branch).
 
+Deployment policy:
+- Never create new Vercel projects. Use `qvantify-frontend` only.
+- Never use temporary public domain assignments. Only `app.qvantify.com` and `staging.app.qvantify.com` are valid entry domains.
+- Keep both stable domains attached to `qvantify-frontend`.
+
 Optional: install a pre-push hook to enforce local checks:
 
 ```bash
@@ -121,28 +126,8 @@ python server.py
 
 ## Results Portal (Admin + Share Links)
 
-This repo now includes a separate Results Portal SPA served under `/results/*`.
-
-### Frontend (Vite build)
-- **Source**: `results-ui/`
-- **Build output**: `static/results/`
-
-Build locally:
-
-```bash
-cd results-ui
-npm install
-npm run build
-```
-
-### Backend routes
-- **Admin UI**: `/results/projects` (local-only)
-- **Customer UI**: `/results/share/<token>` (password-gated)
-
-See `env.local` for required vars (never commit):
-- `ADMIN_LOCAL_KEY` (enables local admin)
-- `SECRET_KEY` (required for share-link login sessions)
-- `SHARE_LINK_ENC_KEY` (required to encrypt/decrypt share link token + password)
+Results routes are served by the Next.js frontend under `frontend/app/results/*`.
+The backend provides API and share-link endpoints only.
 
 ## 📊 Monitoring
 
@@ -173,7 +158,7 @@ qvantify-fullstack/
 ├── llmInterface.py        # OpenAI integration
 ├── database.py            # Database operations
 ├── credentials.py         # Configuration
-├── static/                # Frontend build files
+├── frontend/              # Next.js frontend app
 └── requirements.txt       # Python dependencies
 ```
 

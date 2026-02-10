@@ -71,7 +71,13 @@ python3 scripts/rollback_domains.py --snapshot "ops/checkpoints/checkpoint-<name
 
 ## Mandatory Rules
 
-- Always deploy frontend from `frontend/`.
+### Project policy (non-negotiable)
+- Never create new Vercel projects. Use only the existing `qvantify-frontend` project.
+- Never use temporary domain assignments. Only `app.qvantify.com` and `staging.app.qvantify.com` are valid public entry domains.
+- Keep stable domain ownership on `qvantify-frontend` only. App/staging domains must never be attached to `qvantify-fullstack` or any other project.
+
+### Deployment policy
+- Always deploy frontend from `frontend/` using `vercel link --project qvantify-frontend`.
 - Always keep `app.qvantify.com` and `staging.app.qvantify.com` on `qvantify-frontend-*` deployments.
 - Never alias app/staging domains to `qvantify-fullstack`.
 - Always create a checkpoint before branch realignment or production promotion.
