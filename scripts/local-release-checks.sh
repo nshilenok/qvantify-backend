@@ -14,6 +14,9 @@ fi
 echo "==> Import check (server.py)"
 python3 -c "import server"
 
+echo "==> Branch safety check"
+python3 scripts/release_safety_check.py --repo-path . --skip-alias-check
+
 echo "==> API tests (pytest)"
 pytest
 

@@ -9,3 +9,8 @@ env.local
 node_modules/
 test-results/
 .env*.local
+.worktrees/
+tmp/
+.cursor/plans/
+.cursor/debug.log
+frontend/qvantify-cicd.skill

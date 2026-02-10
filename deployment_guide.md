@@ -35,14 +35,26 @@ This guide lists everything you need to redeploy the project to Railway (or any 
         - If you *must* set it, use: `python start.py`
         - **Do not** set `gunicorn ... $PORT` (it will fail when `$PORT` isn’t expanded).
 
-## 3.1 Staging → Production Workflow (Manual Promotion)
+## 3.1 Staging -> Production Workflow (Safe Promotion)
 
-This repo uses a **staging branch** for verification, then **manual promotion** to production via merge.
+This repo uses one frontend Vercel project and two backend Railway environments.
+
+### Naming map (non-technical)
+
+- GitHub repo `qvantify-backend` = full codebase (frontend + backend).
+- Vercel project `qvantify-frontend` = only real frontend domains:
+  - `staging.app.qvantify.com`
+  - `app.qvantify.com`
+- Vercel project `qvantify-fullstack` = legacy/static only, never used for app/staging domains.
+- Railway:
+  - staging backend = `https://qvantify-staging.up.railway.app`
+  - production backend = `https://qvantify.up.railway.app`
 
 ### Local checks (run before every push)
 
 ```bash
 ./scripts/local-release-checks.sh
+python3 scripts/release_safety_check.py --repo-path .
 ```
 
 Optional one-time setup to auto-run checks on every `git push`:
@@ -54,28 +66,44 @@ Optional one-time setup to auto-run checks on every `git push`:
 ### Branch flow
 
 1. Run local checks.
-2. Push to `staging` (auto-deploys staging).
-3. Verify staging with the smoke checklist below.
-4. Merge `staging` → `main` to deploy production.
+2. Push to `staging`.
+3. Deploy frontend from `frontend/` to `staging.app.qvantify.com`.
+4. Verify staging with smoke checklist.
+5. Merge `staging` -> `main`.
+6. Promote exact staging frontend deployment to production domain.
 
-### Railway staging setup
+### Frontend deploy commands
 
-- Create a **staging service/environment** that tracks the `staging` branch.
-- Keep the existing production service on `main`.
-- Mirror env vars (same keys as prod, per current policy).
-  - **Warning:** using production keys in staging means staging actions can affect production data. Treat staging as read-only unless you intentionally want to modify prod.
+Deploy to staging:
 
-### Vercel staging setup
+```bash
+vercel link --cwd frontend --project qvantify-frontend --scope nikita-shilenoks-projects --yes
+vercel deploy --cwd frontend --local-config frontend/vercel.json --target=preview --yes
+vercel alias set <preview-url> staging.app.qvantify.com
+python3 scripts/verify_domain_aliases.py
+```
 
-- Create a second Vercel project (e.g. `qvantify-staging`) that deploys from the `staging` branch.
-- Keep the production project tied to `main`.
-- Mirror env vars (same keys as prod, per current policy).
-  - **Warning:** using production keys in staging means staging actions can affect production data. Treat staging as read-only unless you intentionally want to modify prod.
-- Set `QVANTIFY_RAILWAY_URL` in each Vercel project:
-  - Production: `https://qvantify.up.railway.app`
-  - Staging: your Railway staging service URL (e.g. `https://qvantify-staging.up.railway.app`)
-- **Staging preview URL**: use the latest Vercel Preview deployment for the `staging` branch.
-  - Vercel preview URLs change on each deployment. If you need a stable staging URL, set a Preview domain in Vercel.
+Promote staging frontend to production:
+
+```bash
+python3 scripts/promote_frontend_from_staging.py --apply
+python3 scripts/verify_domain_aliases.py
+```
+
+### Panic-button checkpoint and rollback
+
+Before risky promotions:
+
+```bash
+python3 scripts/create_checkpoint.py --name "<release-name>"
+python3 scripts/rollback_domains.py --snapshot "ops/checkpoints/checkpoint-<release-name>.json"
+```
+
+If rollback is needed:
+
+```bash
+python3 scripts/rollback_domains.py --snapshot "ops/checkpoints/checkpoint-<release-name>.json" --apply
+```
 
 ### Staging smoke checklist (before promotion)
 
@@ -87,7 +115,9 @@ Optional one-time setup to auto-run checks on every `git push`:
 
 - Local checks passed
 - Staging smoke checklist passed
-- Merge `staging` → `main`
+- `python3 scripts/release_safety_check.py --repo-path .` passed
+- Merge `staging` -> `main`
+- Frontend production promotion completed
 
 ## 4. Database Restoration
 

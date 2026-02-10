@@ -1,0 +1,84 @@
+name: deploy-frontend
+
+on:
+  push:
+    branches:
+      - staging
+  workflow_dispatch:
+    inputs:
+      promote_to_production:
+        description: "Promote current staging deployment to app.qvantify.com"
+        required: true
+        default: "true"
+
+concurrency:
+  group: qvantify-frontend-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy-staging-frontend:
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/staging' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      - name: Link frontend project
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel link --cwd frontend --project qvantify-frontend --scope nikita-shilenoks-projects --yes --token "$VERCEL_TOKEN"
+
+      - name: Deploy frontend preview
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          DEPLOY_OUTPUT=$(vercel deploy --cwd frontend --local-config frontend/vercel.json --target=preview --yes --token "$VERCEL_TOKEN")
+          DEPLOY_URL=$(printf '%s\n' "$DEPLOY_OUTPUT" | tail -n 1)
+          echo "DEPLOY_URL=$DEPLOY_URL" >> "$GITHUB_ENV"
+          echo "$DEPLOY_OUTPUT"
+
+      - name: Point staging domain
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel alias set "$DEPLOY_URL" staging.app.qvantify.com --token "$VERCEL_TOKEN"
+
+      - name: Verify domain aliases
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: python3 scripts/verify_domain_aliases.py
+
+  promote-frontend-production:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.promote_to_production == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      - name: Safety checks before promotion
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: python3 scripts/release_safety_check.py --repo-path . --skip-alias-check
+
+      - name: Promote staging deployment to production
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: python3 scripts/promote_frontend_from_staging.py --apply
+
+      - name: Verify domain aliases after promotion
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: python3 scripts/verify_domain_aliases.py

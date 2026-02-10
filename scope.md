@@ -378,9 +378,16 @@ This file is the **source of truth** for what we expect to work and how we test 
 ## Release Workflow (Local-only Checks + Staging)
 
 - Run `./scripts/local-release-checks.sh` before every push.
+- Run `python3 scripts/release_safety_check.py --repo-path .` before promotion.
 - (Optional) Install the pre-push hook once: `./scripts/install-git-hooks.sh`
+- Frontend ownership:
+  - `qvantify-frontend` serves both `staging.app.qvantify.com` and `app.qvantify.com`.
+  - `qvantify-fullstack` is legacy/static only and must not own app/staging domains.
 - Release flow:
-  - Push to `staging` → verify staging → merge `staging` → `main` for production.
+  - Push to `staging` -> deploy frontend from `frontend/` to `staging.app.qvantify.com` -> verify staging -> merge `staging` -> `main` -> promote the same staging frontend deployment to `app.qvantify.com`.
+- Rollback safety:
+  - Create checkpoint before risky changes: `python3 scripts/create_checkpoint.py --name "<release-name>"`.
+  - Use snapshot rollback command if needed: `python3 scripts/rollback_domains.py --snapshot "ops/checkpoints/checkpoint-<release-name>.json" --apply`.
 
 ## Engineering Guardrails (Agent Rules)
 
