@@ -11,6 +11,7 @@
 <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
 <link rel="shortcut icon" href="/favicon.ico">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <script defer="defer" src="/static/js/444.34253060.js"></script>
 <script defer="defer" src="/static/js/main.b6eba577.js"></script>
 </head>
@@ -563,18 +564,6 @@
     if (abortMessage && successMessage) replaceTextMatches(successMessage, abortMessage);
   };
 
-  const hideRestartAfterAbort = () => {
-    if (!isAborted()) return;
-    const project = getProject();
-    const restartLabel = normalize(textValue(project?.cta_restart) || "Restart");
-    if (!restartLabel) return;
-    document.querySelectorAll("div,span,p,a,button").forEach((el) => {
-      if (el.childElementCount !== 0) return;
-      if (normalize(el.textContent) !== restartLabel) return;
-      const clickable = findClickableParent(el);
-      if (clickable) clickable.style.display = "none";
-    });
-  };
 
   // The bundled UI sometimes renders the Restart label but it ends up hidden (e.g. display:none).
   // Ensure the label is visible and set to a sensible default.
@@ -742,7 +731,7 @@
     applyAbortMessaging();
     applyRestartLabelFallback();
     ensureRestartLabelVisible();
-    hideRestartAfterAbort();
+    // Keep restart CTA visible after abort to let users restart.
     // #region agent log
     __qvLog("H1", "static/index.html:abortObserver", "MutationObserver tick", {
       throttled: true,
@@ -757,7 +746,7 @@
   applyAbortMessaging();
   applyRestartLabelFallback();
   ensureRestartLabelVisible();
-  hideRestartAfterAbort();
+  // Keep restart CTA visible after abort to let users restart.
 })();
 </script>
 <script>

@@ -166,6 +166,8 @@ export function SharePage() {
   const [search, setSearch] = React.useState("");
   const [sortKey, setSortKey] = React.useState("latest");
   const [showAudioOnly, setShowAudioOnly] = React.useState(false);
+  const [hideEmptyInterviews, setHideEmptyInterviews] = React.useState(false);
+  const [hideSessionsMarkedAsSeen, setHideSessionsMarkedAsSeen] = React.useState(false);
   const [filterRows, setFilterRows] = React.useState<FilterRow[]>([
     { id: "external_id", field: "external_id", op: "contains", value: "" },
   ]);
@@ -173,6 +175,7 @@ export function SharePage() {
   const [noteDraft, setNoteDraft] = React.useState("");
   const [noteStatus, setNoteStatus] = React.useState<"idle" | "saving" | "saved" | "error">("idle");
   const noteSaveTimer = React.useRef<number | null>(null);
+  const [hasMounted, setHasMounted] = React.useState(false);
 
   const copyText = async (value: string) => {
     try {
@@ -184,10 +187,36 @@ export function SharePage() {
   };
   const noteDraftRef = React.useRef("");
   const lastSavedRef = React.useRef("");
+  const hideEmptyStorageKey = React.useMemo(
+    () => `qvantify:share:${token}:hide-empty-interviews`,
+    [token]
+  );
   const userTimeZone = React.useMemo(
     () => Intl.DateTimeFormat().resolvedOptions().timeZone || "",
     []
   );
+  React.useEffect(() => {
+    setHasMounted(true);
+  }, []);
+  React.useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(hideEmptyStorageKey);
+      if (stored === "1") {
+        setHideEmptyInterviews(true);
+      } else {
+        setHideEmptyInterviews(false);
+      }
+    } catch {
+      // Ignore localStorage failures in restricted browser contexts.
+    }
+  }, [hideEmptyStorageKey]);
+  React.useEffect(() => {
+    try {
+      window.localStorage.setItem(hideEmptyStorageKey, hideEmptyInterviews ? "1" : "0");
+    } catch {
+      // Ignore localStorage failures in restricted browser contexts.
+    }
+  }, [hideEmptyInterviews, hideEmptyStorageKey]);
   const formatLocalTime = React.useCallback(
     (value?: string | null) => {
       if (!value) return "";
@@ -199,6 +228,55 @@ export function SharePage() {
     },
     [userTimeZone]
   );
+  const formatSidebarDateTime = React.useCallback(
+    (value?: string | null) => {
+      if (!value) return "";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "";
+      const options: Intl.DateTimeFormatOptions = {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      };
+      if (userTimeZone) options.timeZone = userTimeZone;
+      const parts = new Intl.DateTimeFormat("en-GB", options).formatToParts(date);
+      const lookup: Record<string, string> = {};
+      for (const part of parts) {
+        lookup[part.type] = part.value;
+      }
+      const day = lookup.day;
+      const month = lookup.month?.toLowerCase();
+      const year = lookup.year;
+      const hour = lookup.hour;
+      const minute = lookup.minute;
+      if (!day || !month || !year || !hour || !minute) {
+        return new Intl.DateTimeFormat("en-GB", options).format(date).replace(",", "");
+      }
+      return `${day} ${month} ${year} ${hour}:${minute}`;
+    },
+    [userTimeZone]
+  );
+  const formatTimeAgo = React.useCallback((value?: string | null) => {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    const diffMs = Date.now() - date.getTime();
+    if (diffMs <= 0) return "just now";
+    const minutes = Math.floor(diffMs / 60000);
+    if (minutes < 1) return "just now";
+    if (minutes < 60) return `${minutes} min ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours} hr ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 30) return `${days} day${days === 1 ? "" : "s"} ago`;
+    const months = Math.floor(days / 30);
+    if (months < 12) return `${months} mo ago`;
+    const years = Math.floor(months / 12);
+    return `${years} yr ago`;
+  }, []);
 
   const sessionFilters = React.useMemo(() => {
     const byField = new Map<FilterField, FilterRow>();
@@ -227,13 +305,31 @@ export function SharePage() {
     const { min, max } = resolveResponsesRange(responsesRow);
     if (min) params.responses_min = min;
     if (max) params.responses_max = max;
+    if (hideEmptyInterviews) {
+      const minResponses = Number.parseInt(params.responses_min || "", 10);
+      if (!Number.isFinite(minResponses) || minResponses < 1) {
+        params.responses_min = "1";
+      }
+    }
+    if (hideSessionsMarkedAsSeen) {
+      params.hide_seen = "1";
+    }
 
     const audioRow = byField.get("audio_tokens");
     const audioRange = resolveAudioRange(audioRow);
     if (audioRange.min) params.audio_min = audioRange.min;
     if (audioRange.max) params.audio_max = audioRange.max;
     return params;
-  }, [filterRows, resolveAudioRange, resolveDateRange, resolveResponsesRange, search, sortKey]);
+  }, [
+    filterRows,
+    hideEmptyInterviews,
+    hideSessionsMarkedAsSeen,
+    resolveAudioRange,
+    resolveDateRange,
+    resolveResponsesRange,
+    search,
+    sortKey,
+  ]);
 
   const listQ = useQuery({
     queryKey: ["share", "sessions", token, { ...sessionFilters, authed }],
@@ -264,6 +360,9 @@ export function SharePage() {
   const noteSave = useMutation({
     mutationFn: (vars: { id: string; admin_note: string }) =>
       shareUpdateSessionAnnotation(token, vars.id, { admin_note: vars.admin_note }),
+    onMutate: () => {
+      setNoteStatus("saving");
+    },
     onSuccess: async () => {
       lastSavedRef.current = noteDraftRef.current;
       setNoteStatus("saved");
@@ -273,14 +372,27 @@ export function SharePage() {
     },
     onError: () => setNoteStatus("error"),
   });
+  const seenSave = useMutation({
+    mutationFn: (vars: { id: string; is_seen: boolean }) =>
+      shareUpdateSessionAnnotation(token, vars.id, { is_seen: vars.is_seen }),
+    onSuccess: async () => {
+      await listQ.refetch();
+      await detailQ.refetch();
+    },
+  });
 
   React.useEffect(() => {
-    if (!listQ.data?.sessions?.length) {
+    const nextSessions = listQ.data?.sessions;
+    if (!nextSessions) return;
+    if (nextSessions.length === 0) {
       setSelectedId(null);
+      setNoteStatus("idle");
       return;
     }
-    if (!selectedId) setSelectedId(listQ.data.sessions[0].id);
-  }, [listQ.data, selectedId]);
+    if (!selectedId || !nextSessions.some((session) => session.id === selectedId)) {
+      setSelectedId(nextSessions[0].id);
+    }
+  }, [listQ.data?.sessions, selectedId]);
 
   const sessions = listQ.data?.sessions ?? [];
   const isDateSort = sortKey === "latest" || sortKey === "oldest";
@@ -354,17 +466,27 @@ export function SharePage() {
   }, [noteDraft]);
 
   React.useEffect(() => {
-    if (!selected) return;
+    if (!selected) {
+      if (noteSaveTimer.current) {
+        window.clearTimeout(noteSaveTimer.current);
+        noteSaveTimer.current = null;
+      }
+      setNoteStatus("idle");
+      return;
+    }
     if (noteDraft === lastSavedRef.current) return;
     if (noteSaveTimer.current) {
       window.clearTimeout(noteSaveTimer.current);
     }
-    setNoteStatus("saving");
-    noteSaveTimer.current = window.setTimeout(() => {
+    const timerId = window.setTimeout(() => {
       noteSave.mutate({ id: selected.id, admin_note: noteDraftRef.current });
     }, 700);
+    noteSaveTimer.current = timerId;
     return () => {
-      if (noteSaveTimer.current) window.clearTimeout(noteSaveTimer.current);
+      window.clearTimeout(timerId);
+      if (noteSaveTimer.current === timerId) {
+        noteSaveTimer.current = null;
+      }
     };
   }, [noteDraft, selected?.id]);
 
@@ -468,7 +590,11 @@ export function SharePage() {
     const active = s.id === selectedId;
     const title = s.persona_label || "Session";
     const ts = s.last_activity_at || s.created_at;
+    const dateTimeLabel = formatSidebarDateTime(ts);
+    const timeAgoLabel = hasMounted ? formatTimeAgo(ts) : "";
     const snippet = search ? s.match_snippet : null;
+    const noteText = (s.admin_note || "").trim();
+    const notePreview = noteText ? (noteText.length > 100 ? `${noteText.slice(0, 100)}...` : noteText) : "";
     return (
       <button
         key={s.id}
@@ -481,73 +607,102 @@ export function SharePage() {
           }
         `}
       >
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-3 min-w-0">
-            <Avatar name={title} size="sm" />
-            <div className="min-w-0">
-              <div className={`text-sm font-semibold truncate ${active ? "text-white" : "text-[var(--text-secondary)]"}`}>
+        <div className="flex items-start gap-3">
+          <Avatar name={title} size="sm" />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2">
+              <div className={`min-w-0 text-sm font-semibold truncate ${active ? "text-white" : "text-[var(--text-secondary)]"}`}>
                 {title}
               </div>
-              <div className={`text-xs truncate ${active ? "text-white/70" : "text-[var(--text-muted)]"}`}>
-                {s.answer_count} messages
+              <div className={`shrink-0 text-right text-xs ${active ? "text-white/70" : "text-[var(--text-muted)]"}`}>
+                {dateTimeLabel}
               </div>
             </div>
-          </div>
-          <div className={`shrink-0 text-right text-xs ${active ? "text-white/70" : "text-[var(--text-muted)]"}`}>
-            <div>{formatLocalTime(ts)}</div>
-            <div
-              className={`mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
-                active
-                  ? "border-white/30 bg-white/15 text-white"
-                  : "border-[var(--border-default)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]"
-              }`}
-            >
-              {s.answer_count} responses
+            <div className="mt-1 flex items-center justify-between gap-2">
+              <div className={`text-xs truncate ${active ? "text-white/70" : "text-[var(--text-muted)]"}`}>
+                External ID: <span className="font-mono">{s.external_id || "N/A"}</span>
+              </div>
+              {timeAgoLabel && (
+                <div className={`shrink-0 text-[11px] ${active ? "text-white/70" : "text-[var(--text-subtle)]"}`}>
+                  {timeAgoLabel}
+                </div>
+              )}
             </div>
-            {s.audio_tokens ? (
-              <div
-                className={`mt-1 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <span
+                className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
                   active
-                    ? "border-white/30 bg-white/10 text-white"
+                    ? "border-white/30 bg-white/15 text-white"
                     : "border-[var(--border-default)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]"
                 }`}
               >
-                <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 10v2a7 7 0 01-14 0v-2" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 19v3" />
-                </svg>
-                {formatTokenCount(s.audio_tokens)}
-              </div>
-            ) : null}
-            <div
-              className={`mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
-                active
-                  ? "border-white/30 bg-white/10 text-white"
-                  : s.is_closed
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                  : "border-amber-200 bg-amber-50 text-amber-700"
-              }`}
-            >
-              {s.is_closed ? "Closed" : "Open"}
+                {s.answer_count} responses
+              </span>
+              {s.audio_tokens ? (
+                <span
+                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                    active
+                      ? "border-white/30 bg-white/10 text-white"
+                      : "border-[var(--border-default)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]"
+                  }`}
+                >
+                  <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 10v2a7 7 0 01-14 0v-2" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 19v3" />
+                  </svg>
+                  {formatTokenCount(s.audio_tokens)}
+                </span>
+              ) : null}
+              <span
+                className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                  active
+                    ? "border-white/30 bg-white/10 text-white"
+                    : s.is_closed
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-amber-200 bg-amber-50 text-amber-700"
+                }`}
+              >
+                {s.is_closed ? "Closed" : "Open"}
+              </span>
+              {s.is_seen ? (
+                <span
+                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                    active
+                      ? "border-white/30 bg-white/10 text-white"
+                      : "border-blue-200 bg-blue-50 text-blue-700"
+                  }`}
+                >
+                  <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 15a3 3 0 100-6 3 3 0 000 6z" />
+                  </svg>
+                  Seen
+                </span>
+              ) : null}
             </div>
+
+            <div className={`mt-2 text-[11px] font-mono truncate ${active ? "text-white/60" : "text-[var(--text-subtle)]"}`} title={s.id}>
+              {s.id}
+            </div>
+            {notePreview && (
+              <div className={`mt-1 text-xs ${active ? "text-white/85" : "text-[var(--text-secondary)]"}`} title={noteText}>
+                {notePreview}
+              </div>
+            )}
+            {snippet && (
+              <div className={`mt-1 text-xs truncate ${active ? "text-white/80" : "text-[var(--text-secondary)]"}`} title={snippet}>
+                Matched: “{snippet}”
+              </div>
+            )}
+            {s.admin_like !== null && s.admin_like !== undefined && (
+              <span className={`mt-1 inline-flex text-xs ${s.admin_like === 1 ? "text-emerald-700" : s.admin_like === -1 ? "text-red-700" : active ? "text-white/75" : "text-[var(--text-muted)]"}`}>
+                {s.admin_like === 1 ? "👍" : s.admin_like === -1 ? "👎" : "😐"}
+              </span>
+            )}
           </div>
         </div>
-        <div className={`mt-1 text-[11px] font-mono truncate ${active ? "text-white/60" : "text-[var(--text-subtle)]"}`} title={s.id}>
-          {s.id}
-        </div>
-        {snippet && (
-          <div className={`mt-1 text-xs truncate ${active ? "text-white/80" : "text-[var(--text-secondary)]"}`} title={snippet}>
-            Matched: “{snippet}”
-          </div>
-        )}
-        {s.admin_like !== null && s.admin_like !== undefined && (
-          <div className="mt-1 ml-10">
-            <span className={`text-xs ${s.admin_like === 1 ? "text-emerald-700" : s.admin_like === -1 ? "text-red-700" : "text-[var(--text-muted)]"}`}>
-              {s.admin_like === 1 ? "👍" : s.admin_like === -1 ? "👎" : "😐"}
-            </span>
-          </div>
-        )}
       </button>
     );
   };
@@ -690,6 +845,26 @@ export function SharePage() {
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search transcripts, persona, external_id, session id..."
             />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-2 rounded-full border border-[var(--border-default)] bg-white px-3 py-1.5 text-xs text-[var(--text-secondary)]">
+              <input
+                type="checkbox"
+                checked={hideEmptyInterviews}
+                onChange={(e) => setHideEmptyInterviews(e.target.checked)}
+                className="rounded border-[var(--border-default)]"
+              />
+              Hide empty interviews
+            </label>
+            <label className="flex items-center gap-2 rounded-full border border-[var(--border-default)] bg-white px-3 py-1.5 text-xs text-[var(--text-secondary)]">
+              <input
+                type="checkbox"
+                checked={hideSessionsMarkedAsSeen}
+                onChange={(e) => setHideSessionsMarkedAsSeen(e.target.checked)}
+                className="rounded border-[var(--border-default)]"
+              />
+              Hide sessions marked as seen
+            </label>
           </div>
 
           <div>
@@ -883,11 +1058,11 @@ export function SharePage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:min-h-[calc(100vh-13rem)]">
         {/* Sidebar */}
-        <div className="lg:col-span-4 space-y-4">
+        <div className="lg:col-span-4 space-y-4 lg:flex lg:min-h-0 lg:flex-col">
           {/* Sessions */}
-          <div className="glass-card rounded-3xl overflow-hidden">
+          <div className="glass-card rounded-3xl overflow-hidden lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
             <div className="p-4 border-b border-[var(--border-default)]">
               <div className="text-sm font-semibold text-[var(--text-primary)]">Sessions</div>
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--text-muted)]">
@@ -900,7 +1075,7 @@ export function SharePage() {
               </div>
             </div>
 
-            <div className="p-3 max-h-[520px] overflow-y-auto bg-[var(--bg-secondary)]">
+            <div className="p-3 max-h-[520px] overflow-y-auto bg-[var(--bg-secondary)] lg:max-h-none lg:flex-1 lg:min-h-0">
               {listQ.isLoading && (
                 <div className="space-y-2 p-2">
                   <SkeletonSessionItem />
@@ -940,8 +1115,8 @@ export function SharePage() {
         </div>
 
         {/* Main Content */}
-        <div className="lg:col-span-8">
-          <div className="glass-card rounded-3xl overflow-hidden min-h-[600px]">
+        <div className="lg:col-span-8 lg:min-h-0">
+          <div className="glass-card rounded-3xl overflow-hidden min-h-[600px] lg:flex lg:min-h-0 lg:h-full lg:flex-col">
             {!selectedId && (
               <div className="h-full flex items-center justify-center p-12">
                 <div className="text-center">
@@ -971,31 +1146,69 @@ export function SharePage() {
               <div className="flex flex-col h-full">
                 {/* Header */}
                 <div className="p-6 border-b border-[var(--border-default)] bg-[var(--bg-primary)]">
-                  <div className="flex items-start gap-4">
-                    <Avatar name={selected.persona_label} size="lg" />
-                    <div>
-                      <h2 className="text-lg font-semibold text-[var(--text-primary)]">
-                        {selected.persona_label || "Session"}
-                      </h2>
-                      {typeof selected.is_closed === "boolean" && (
-                        <div
-                          className={`mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
-                            selected.is_closed
-                              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                              : "border-amber-200 bg-amber-50 text-amber-700"
-                          }`}
-                        >
-                          {selected.is_closed ? "Closed" : "Open"}
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start gap-4">
+                      <Avatar name={selected.persona_label} size="lg" />
+                      <div>
+                        <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+                          {selected.persona_label || "Session"}
+                        </h2>
+                        {typeof selected.is_closed === "boolean" && (
+                          <div
+                            className={`mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                              selected.is_closed
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                : "border-amber-200 bg-amber-50 text-amber-700"
+                            }`}
+                          >
+                            {selected.is_closed ? "Closed" : "Open"}
+                          </div>
+                        )}
+                        <div className="text-sm text-[var(--text-muted)]">
+                          {filteredRecords.length} messages
                         </div>
-                      )}
-                      <div className="text-sm text-[var(--text-muted)]">
-                        {filteredRecords.length} messages
-                      </div>
-                      <div className="text-[11px] text-[var(--text-muted)]">
-                        Times shown in your timezone{userTimeZone ? ` (${userTimeZone})` : ""}.
+                        <div className="text-xs text-[var(--text-muted)]">
+                          External ID: <span className="font-mono text-[var(--text-secondary)]">{selected.external_id || "N/A"}</span>
+                        </div>
+                        <div className="text-[11px] text-[var(--text-muted)]">
+                          Times shown in your timezone{userTimeZone ? ` (${userTimeZone})` : ""}.
+                        </div>
                       </div>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => seenSave.mutate({ id: selected.id, is_seen: !Boolean(selected.is_seen) })}
+                      disabled={seenSave.isPending}
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all-base ${
+                        selected.is_seen
+                          ? "border-blue-200 bg-blue-50 text-blue-700"
+                          : "border-[var(--border-default)] bg-white text-[var(--text-secondary)]"
+                      }`}
+                      aria-label={
+                        seenSave.isPending
+                          ? "Saving seen state"
+                          : selected.is_seen
+                          ? "Mark session as unseen"
+                          : "Mark session as seen"
+                      }
+                      title={
+                        seenSave.isPending
+                          ? "Saving..."
+                          : selected.is_seen
+                          ? "Marked as seen. Click to unmark."
+                          : "Mark as seen"
+                      }
+                    >
+                      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 15a3 3 0 100-6 3 3 0 000 6z" />
+                      </svg>
+                      {seenSave.isPending ? "Saving..." : selected.is_seen ? "Seen" : "Mark as seen"}
+                    </button>
                   </div>
+                  {seenSave.isError && (
+                    <div className="mt-2 text-xs text-red-600">Could not update seen state. Please try again.</div>
+                  )}
 
                   {selected.findings_summary && (
                     <div className="mt-4 rounded-2xl border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">

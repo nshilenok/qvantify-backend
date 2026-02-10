@@ -202,7 +202,10 @@ CREATE TABLE IF NOT EXISTS records (
     created_at TIMESTAMPTZ DEFAULT now(),
     -- Admin annotations (Results Portal)
     admin_note TEXT,
-    admin_like SMALLINT NOT NULL DEFAULT 0
+    admin_like SMALLINT NOT NULL DEFAULT 0,
+    -- Voice transcription metadata
+    voice_input BOOLEAN NOT NULL DEFAULT false,
+    audio_tokens INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS respondents (
@@ -215,6 +218,7 @@ CREATE TABLE IF NOT EXISTS respondents (
     -- Admin annotations + stored interview analysis (Results Portal)
     admin_note TEXT,
     admin_like SMALLINT NOT NULL DEFAULT 0,
+    is_seen BOOLEAN NOT NULL DEFAULT false,
     persona_label TEXT,
     findings_summary TEXT,
     analysis_facts TEXT,
@@ -293,6 +297,9 @@ CREATE TABLE IF NOT EXISTS projects (
 ALTER TABLE IF EXISTS projects ADD COLUMN IF NOT EXISTS abort_title TEXT;
 ALTER TABLE IF EXISTS projects ADD COLUMN IF NOT EXISTS abort_message TEXT;
 ALTER TABLE IF EXISTS projects ADD COLUMN IF NOT EXISTS voice_enabled BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE IF EXISTS records ADD COLUMN IF NOT EXISTS voice_input BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE IF EXISTS records ADD COLUMN IF NOT EXISTS audio_tokens INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE IF EXISTS respondents ADD COLUMN IF NOT EXISTS is_seen BOOLEAN NOT NULL DEFAULT false;
 
 UPDATE projects
 SET abort_title = 'Aborted',

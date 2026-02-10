@@ -31,11 +31,20 @@ interface FilterRow {
   value2?: string;
 }
 
+function toLocalDateKey(ts: string) {
+  const date = new Date(ts);
+  if (Number.isNaN(date.getTime())) return "Unknown";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function groupByDay(sessions: SessionListItem[], direction: "asc" | "desc" = "desc") {
   const groups: Record<string, SessionListItem[]> = {};
   for (const s of sessions) {
     const ts = s.last_activity_at || s.created_at;
-    const day = ts ? new Date(ts).toISOString().slice(0, 10) : "Unknown";
+    const day = ts ? toLocalDateKey(ts) : "Unknown";
     groups[day] = groups[day] || [];
     groups[day].push(s);
   }
@@ -47,7 +56,11 @@ function groupByDay(sessions: SessionListItem[], direction: "asc" | "desc" = "de
 }
 
 function formatDate(dateStr: string): string {
-  const date = new Date(dateStr);
+  const [year, month, day] = dateStr.split("-").map(Number);
+  const date =
+    Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day)
+      ? new Date(year, month - 1, day)
+      : new Date(dateStr);
   const now = new Date();
   const isToday = date.toDateString() === now.toDateString();
   const isYesterday = new Date(now.getTime() - 86400000).toDateString() === date.toDateString();
@@ -147,6 +160,70 @@ export function SharePage() {
   };
   const noteDraftRef = React.useRef("");
   const lastSavedRef = React.useRef("");
+  const userTimeZone = React.useMemo(
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone || "",
+    []
+  );
+  const formatLocalTime = React.useCallback(
+    (value?: string | null) => {
+      if (!value) return "";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "";
+      const options: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit" };
+      if (userTimeZone) options.timeZone = userTimeZone;
+      return new Intl.DateTimeFormat("en-US", options).format(date);
+    },
+    [userTimeZone]
+  );
+  const formatSidebarDateTime = React.useCallback(
+    (value?: string | null) => {
+      if (!value) return "";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "";
+      const options: Intl.DateTimeFormatOptions = {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      };
+      if (userTimeZone) options.timeZone = userTimeZone;
+      const parts = new Intl.DateTimeFormat("en-GB", options).formatToParts(date);
+      const lookup: Record<string, string> = {};
+      for (const part of parts) {
+        lookup[part.type] = part.value;
+      }
+      const day = lookup.day;
+      const month = lookup.month?.toLowerCase();
+      const year = lookup.year;
+      const hour = lookup.hour;
+      const minute = lookup.minute;
+      if (!day || !month || !year || !hour || !minute) {
+        return new Intl.DateTimeFormat("en-GB", options).format(date).replace(",", "");
+      }
+      return `${day} ${month} ${year} ${hour}:${minute}`;
+    },
+    [userTimeZone]
+  );
+  const formatTimeAgo = React.useCallback((value?: string | null) => {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    const diffMs = Date.now() - date.getTime();
+    if (diffMs <= 0) return "just now";
+    const minutes = Math.floor(diffMs / 60000);
+    if (minutes < 1) return "just now";
+    if (minutes < 60) return `${minutes} min ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours} hr ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 30) return `${days} day${days === 1 ? "" : "s"} ago`;
+    const months = Math.floor(days / 30);
+    if (months < 12) return `${months} mo ago`;
+    const years = Math.floor(months / 12);
+    return `${years} yr ago`;
+  }, []);
 
   const sessionFilters = React.useMemo(() => {
     const byField = new Map<FilterField, FilterRow>();
@@ -236,11 +313,6 @@ export function SharePage() {
   const selected = detailQ.data?.session;
   const records = detailQ.data?.records || [];
   const displayRecords = records.filter((record) => (record.content ?? "").trim().length > 0);
-  interface TranscriptTopicItem {
-    type: "topic";
-    id: string;
-    label: string;
-  }
   interface TranscriptGroupItem {
     type: "group";
     id: string;
@@ -251,33 +323,15 @@ export function SharePage() {
     id: string;
     record: (typeof displayRecords)[number];
   }
-  type TranscriptItem = TranscriptGroupItem | TranscriptTopicItem | TranscriptMessageItem;
+  type TranscriptItem = TranscriptGroupItem | TranscriptMessageItem;
   const transcriptItems = React.useMemo<TranscriptItem[]>(() => {
     const items: TranscriptItem[] = [];
-    const topicLabels = new Map<string, string>();
-    let lastTopicKey = "";
     let lastGroupKey = "";
     for (const record of displayRecords) {
-      const topicId = String(record.topic ?? "").trim();
-      const explicitLabel = String(record.topic_label ?? "").trim();
-      const fallbackLabel = String(record.content ?? "").trim();
       const groupLabel = String(record.topic_group ?? "").trim();
       if (groupLabel && groupLabel !== lastGroupKey) {
         items.push({ type: "group", id: `group-${record.id}`, label: groupLabel });
         lastGroupKey = groupLabel;
-      }
-      if (topicId) {
-        if (explicitLabel) {
-          topicLabels.set(topicId, explicitLabel);
-        } else if (!topicLabels.has(topicId) && record.role === "assistant" && fallbackLabel) {
-          topicLabels.set(topicId, fallbackLabel);
-        }
-      }
-      const resolvedLabel = explicitLabel || (topicId ? topicLabels.get(topicId) : "");
-      const topicKey = topicId || resolvedLabel || "";
-      if (resolvedLabel && topicKey !== lastTopicKey) {
-        items.push({ type: "topic", id: `topic-${record.id}`, label: resolvedLabel });
-        lastTopicKey = topicKey;
       }
       items.push({ type: "message", id: record.id, record });
     }
@@ -401,6 +455,8 @@ export function SharePage() {
     const active = s.id === selectedId;
     const title = s.persona_label || "Session";
     const ts = s.last_activity_at || s.created_at;
+    const dateTimeLabel = formatSidebarDateTime(ts);
+    const timeAgoLabel = formatTimeAgo(ts);
     const snippet = search ? s.match_snippet : null;
     return (
       <button
@@ -422,14 +478,17 @@ export function SharePage() {
                 {title}
               </div>
               <div className={`text-xs truncate ${active ? "text-white/70" : "text-[var(--text-muted)]"}`}>
-                {s.answer_count} messages
+                External ID: <span className="font-mono">{s.external_id || "N/A"}</span>
               </div>
             </div>
           </div>
           <div className={`shrink-0 text-right text-xs ${active ? "text-white/70" : "text-[var(--text-muted)]"}`}>
-            <div>
-              {ts ? new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
-            </div>
+            <div>{dateTimeLabel}</div>
+            {timeAgoLabel && (
+              <div className={`mt-1 text-[11px] ${active ? "text-white/70" : "text-[var(--text-subtle)]"}`}>
+                {timeAgoLabel}
+              </div>
+            )}
             <div
               className={`mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
                 active
@@ -864,6 +923,12 @@ export function SharePage() {
                       <div className="text-sm text-[var(--text-muted)]">
                         {displayRecords.length} messages
                       </div>
+                      <div className="text-xs text-[var(--text-muted)]">
+                        External ID: <span className="font-mono text-[var(--text-secondary)]">{selected.external_id || "N/A"}</span>
+                      </div>
+                      <div className="text-[11px] text-[var(--text-muted)]">
+                        Times shown in your timezone{userTimeZone ? ` (${userTimeZone})` : ""}.
+                      </div>
                     </div>
                   </div>
 
@@ -951,18 +1016,7 @@ export function SharePage() {
                       if (item.type === "group") {
                         return (
                           <div key={item.id} className="flex justify-center">
-                            <div className="rounded-full bg-[var(--brand-primary)] px-3 py-1 text-xs font-semibold text-white shadow-sm">
-                              {item.label}
-                            </div>
-                          </div>
-                        );
-                      }
-                      if (item.type === "topic") {
-                        return (
-                          <div key={item.id} className="flex justify-center">
-                            <div className="rounded-full border border-[var(--border-default)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--text-muted)]">
-                              {item.label}
-                            </div>
+                            <div className="text-xs text-[var(--text-muted)]">- {item.label} -</div>
                           </div>
                         );
                       }
@@ -1001,7 +1055,7 @@ export function SharePage() {
                               <div className="whitespace-pre-wrap">{m.content}</div>
                             </div>
                             <div className={`mt-1.5 text-[10px] text-[var(--text-muted)] ${isUser ? "text-right" : ""}`}>
-                              {m.created_at ? new Date(m.created_at).toLocaleTimeString() : ""}
+                              {formatLocalTime(m.created_at)}
                             </div>
                           </div>
                         </div>

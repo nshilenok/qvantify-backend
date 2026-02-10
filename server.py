@@ -209,9 +209,10 @@ class VoiceTranscriptionService:
         raw = file_storage.read(max_bytes + 1)
         file_storage.stream.seek(0)
         byte_count = DrawscapeFactorio.normalize_tokens(len(raw))
-        if byte_count <= 0:
+        audio_tokens = DrawscapeFactorio.normalize_tokens(byte_count)
+        if audio_tokens <= 0:
             return _json_error("Empty audio file", 400)
-        if byte_count > max_bytes:
+        if audio_tokens > max_bytes:
             return _json_error("Audio file too large", 413, max_bytes=max_bytes)
 
         filename = (file_storage.filename or "").strip().lower()
@@ -227,7 +228,7 @@ class VoiceTranscriptionService:
                     params["language"] = lang
                 response = client.audio.transcriptions.create(**params)
             text = (getattr(response, "text", None) or "").strip()
-            return {"text": text}
+            return {"text": text, "audio_tokens": audio_tokens}
         except Exception as exc:
             logger.exception("Voice transcription failed: %s", str(exc))
             return _json_error("Transcription failed", 502)
@@ -257,6 +258,28 @@ class VoiceTranscribeView(MethodView):
             result = VoiceTranscriptionService.transcribe(file_storage, project_id, language)
             if isinstance(result, tuple):
                 return result
+            try:
+                audio_tokens = int(result.get("audio_tokens") or 0)
+            except Exception:
+                audio_tokens = 0
+            if audio_tokens > 0:
+                try:
+                    g.db.query_database_insert(
+                        "INSERT INTO usage_stats (prompt_tokens, completion_tokens, user_id, project, topic, api, model, purpose, service) values (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                        (
+                            audio_tokens,
+                            0,
+                            user_id,
+                            project_id,
+                            None,
+                            "openai",
+                            VoiceTranscriptionConfig.model(),
+                            "audio_transcription",
+                            "audio",
+                        ),
+                    )
+                except Exception:
+                    logger.exception("Failed to record audio usage for %s/%s", project_id, user_id)
             return jsonify(result)
         except Exception as exc:
             logger.exception("Voice transcription error: %s", str(exc))
@@ -774,6 +797,16 @@ def gpt_response():
         check_if_user_exists()
         payload = request.get_json() or {}
         user_response = payload.get('message')
+        voice_input = bool(payload.get("voice_input"))
+        audio_tokens_raw = payload.get("audio_tokens")
+        try:
+            audio_tokens = int(audio_tokens_raw) if audio_tokens_raw is not None else 0
+        except Exception:
+            audio_tokens = 0
+        if not voice_input:
+            audio_tokens = 0
+        g.voice_input = voice_input
+        g.audio_tokens = max(0, audio_tokens)
         if not isinstance(user_response, str) or not user_response.strip():
             return jsonify(error="Missing JSON field: message"), 400
 
@@ -1273,6 +1306,7 @@ class AdminUsageStats:
     SERVICE_MAP = {
         "core": "interviews",
         "results_portal": "summary",
+        "audio": "audio",
     }
 
     @staticmethod
@@ -1296,12 +1330,12 @@ class AdminUsageStats:
         return DrawscapeFactorio.normalize_tokens(row[0] if row else 0)
 
     @staticmethod
-    def _get_usd_rate() -> float:
-        raw = (os.environ.get("TOKEN_USD_PER_1K") or "0.01").strip()
+    def _get_usd_rate(env_key: str, fallback: float) -> float:
+        raw = (os.environ.get(env_key) or "").strip()
         try:
-            rate = float(raw)
+            rate = float(raw) if raw else fallback
         except Exception:
-            rate = 0.01
+            rate = fallback
         return max(0.0, rate)
 
     @staticmethod
@@ -1310,21 +1344,27 @@ class AdminUsageStats:
 
     @staticmethod
     def _build_payload(project_id: str, totals: Dict[str, int]):
-        rate = AdminUsageStats._get_usd_rate()
+        core_rate = AdminUsageStats._get_usd_rate("TOKEN_USD_PER_1K", 0.01)
+        audio_rate = AdminUsageStats._get_usd_rate("AUDIO_USD_PER_1K", 0.000006)
         totals_usd = {
-            "total": AdminUsageStats._to_usd(totals["total"], rate),
-            "interviews": AdminUsageStats._to_usd(totals["interviews"], rate),
-            "summary": AdminUsageStats._to_usd(totals["summary"], rate),
-            "other": AdminUsageStats._to_usd(totals["other"], rate),
+            "interviews": AdminUsageStats._to_usd(totals["interviews"], core_rate),
+            "summary": AdminUsageStats._to_usd(totals["summary"], core_rate),
+            "other": AdminUsageStats._to_usd(totals["other"], core_rate),
+            "audio": AdminUsageStats._to_usd(totals["audio"], audio_rate),
         }
+        totals_usd["total"] = round(
+            totals_usd["interviews"] + totals_usd["summary"] + totals_usd["other"] + totals_usd["audio"], 2
+        )
         return {
             "project": {"id": project_id},
             "totals": totals,
             "totals_usd": totals_usd,
-            "rate_usd_per_1k": rate,
+            "rate_usd_per_1k": core_rate,
+            "rate_usd_per_1k_audio": audio_rate,
             "services": [
                 {"service": "interviews", "tokens": totals["interviews"]},
                 {"service": "summary", "tokens": totals["summary"]},
+                {"service": "audio", "tokens": totals["audio"]},
                 {"service": "other", "tokens": totals["other"]},
             ],
         }
@@ -1334,7 +1374,7 @@ class AdminUsageStats:
         err = _require_local_admin()
         if err:
             return err
-        totals = {"total": 0, "interviews": 0, "summary": 0, "other": 0}
+        totals = {"total": 0, "interviews": 0, "summary": 0, "audio": 0, "other": 0}
         try:
             rows = AdminUsageStats._query_usage_rows(project_id)
             for row in rows:
@@ -1371,6 +1411,24 @@ def _parse_int(value, default: int, min_v: Optional[int] = None, max_v: Optional
     if max_v is not None:
         n = min(max_v, n)
     return n
+
+
+def _coerce_optional_bool(value) -> Optional[bool]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        if value in (0, 1):
+            return bool(value)
+        raise ValueError("Value must be boolean-like")
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in ("1", "true", "yes", "on"):
+            return True
+        if normalized in ("0", "false", "no", "off"):
+            return False
+    raise ValueError("Value must be boolean-like")
 
 
 class SessionSort:
@@ -1413,6 +1471,8 @@ class SessionSort:
 def _session_list_query(project_id: str, filters: dict, include_admin_fields: bool, include_match_snippet: bool = True):
     where = ["r.project=%s"]
     params: List[Any] = [project_id]
+    include_audio = _records_supports_audio()
+    include_is_seen = _respondents_supports_is_seen()
 
     # External ID filtering
     ext_op = (filters.get("external_id_op") or "").strip()
@@ -1473,6 +1533,33 @@ def _session_list_query(project_id: str, filters: dict, include_admin_fields: bo
             where.append("COALESCE(a.answer_count, 0) <= %s")
             params.append(responses_max)
 
+    hide_seen_raw = (filters.get("hide_seen") or "").strip().lower()
+    if include_is_seen and hide_seen_raw in ("1", "true", "yes", "on"):
+        where.append("COALESCE(r.is_seen, false) = false")
+
+    if include_audio:
+        audio_min_raw = (filters.get("audio_min") or "").strip()
+        if audio_min_raw:
+            try:
+                audio_min = int(audio_min_raw)
+            except Exception:
+                audio_min = None
+            if audio_min is not None:
+                audio_min = max(0, audio_min)
+                where.append("COALESCE(a.audio_tokens, 0) >= %s")
+                params.append(audio_min)
+
+        audio_max_raw = (filters.get("audio_max") or "").strip()
+        if audio_max_raw:
+            try:
+                audio_max = int(audio_max_raw)
+            except Exception:
+                audio_max = None
+            if audio_max is not None:
+                audio_max = max(0, audio_max)
+                where.append("COALESCE(a.audio_tokens, 0) <= %s")
+                params.append(audio_max)
+
     search = (filters.get("search") or "").strip()
     if search:
         s = f"%{search}%"
@@ -1521,13 +1608,20 @@ def _session_list_query(project_id: str, filters: dict, include_admin_fields: bo
 
     select_admin = ""
     if include_admin_fields:
-        select_admin = ", r.admin_like, r.admin_note"
+        select_admin = ", r.admin_like, r.admin_note, " + ("COALESCE(r.is_seen, false)" if include_is_seen else "false")
+
+    audio_agg_select = ", 0 AS audio_tokens, 0 AS audio_message_count"
+    if include_audio:
+        audio_agg_select = ", SUM(COALESCE(audio_tokens, 0)) AS audio_tokens, COUNT(*) FILTER (WHERE voice_input IS TRUE) AS audio_message_count"
+
+    select_audio = ", COALESCE(a.audio_tokens, 0) AS audio_tokens, COALESCE(a.audio_message_count, 0) AS audio_message_count"
 
     base = f"""
       WITH agg AS (
         SELECT user_id,
                COUNT(*) FILTER (WHERE role='user') AS answer_count,
                MAX(created_at) AS last_activity_at
+               {audio_agg_select}
         FROM records
         WHERE project=%s
         GROUP BY user_id
@@ -1550,6 +1644,7 @@ def _session_list_query(project_id: str, filters: dict, include_admin_fields: bo
         COALESCE(a.answer_count, 0) AS answer_count,
         a.last_activity_at,
         CASE WHEN lt.status = 0 THEN true ELSE false END AS is_closed
+        {select_audio}
         {select_admin}
       FROM respondents r
       LEFT JOIN agg a ON a.user_id = r.id
@@ -1609,6 +1704,38 @@ class SessionSortResolver:
         return f"{last_activity} DESC NULLS LAST, {created} DESC"
 
 
+def _records_supports_audio() -> bool:
+    cached = getattr(g, "_records_supports_audio", None)
+    if cached is not None:
+        return bool(cached)
+    try:
+        row = g.db.query_database_one(
+            "SELECT 1 FROM information_schema.columns WHERE table_name='records' AND column_name='voice_input' LIMIT 1",
+            tuple(),
+        )
+        supported = bool(row)
+    except Exception:
+        supported = False
+    setattr(g, "_records_supports_audio", supported)
+    return supported
+
+
+def _respondents_supports_is_seen() -> bool:
+    cached = getattr(g, "_respondents_supports_is_seen", None)
+    if cached is not None:
+        return bool(cached)
+    try:
+        row = g.db.query_database_one(
+            "SELECT 1 FROM information_schema.columns WHERE table_name='respondents' AND column_name='is_seen' LIMIT 1",
+            tuple(),
+        )
+        supported = bool(row)
+    except Exception:
+        supported = False
+    setattr(g, "_respondents_supports_is_seen", supported)
+    return supported
+
+
 @app.route("/api/projects/<project_id>/sessions", methods=["GET"])
 def admin_list_sessions(project_id):
     err = _require_local_admin()
@@ -1640,8 +1767,11 @@ def admin_list_sessions(project_id):
                 "answer_count": int(row[6] or 0),
                 "last_activity_at": row[7].isoformat() if row[7] else None,
                 "is_closed": bool(row[8]),
-                "admin_like": int(row[9] or 0),
-                "admin_note": row[10],
+                "audio_tokens": int(row[9] or 0),
+                "audio_message_count": int(row[10] or 0),
+                "admin_like": int(row[11] or 0),
+                "admin_note": row[12],
+                "is_seen": bool(row[13]),
             }
         )
     return jsonify({"total": int(total or 0), "sessions": sessions})
@@ -1654,16 +1784,18 @@ def admin_get_session(project_id, respondent_id):
         return err
 
     include_system = (request.args.get("include_system") or "0") in ("1", "true", "yes")
+    include_is_seen = _respondents_supports_is_seen()
     q_resp = """
       SELECT id, created_at, external_id, email, consent,
-             persona_label, findings_summary, admin_like, admin_note, analyzed_at
+             persona_label, findings_summary, admin_like, admin_note, analyzed_at{seen_select}
       FROM respondents
       WHERE project=%s AND id=%s
       LIMIT 1
-    """
+    """.format(seen_select=", COALESCE(is_seen, false)" if include_is_seen else "")
     resp_row = g.db.query_database_one(q_resp, (project_id, respondent_id))
     if not resp_row:
         return _json_error("Session not found", 404)
+    resp_is_seen = bool(resp_row[10]) if include_is_seen else False
 
     q_agg = """
       SELECT COUNT(*) FILTER (WHERE role='user') AS answer_count,
@@ -1689,25 +1821,32 @@ def admin_get_session(project_id, respondent_id):
         except Exception:
             logger.exception("On-demand analysis failed for %s/%s", project_id, respondent_id)
 
+    include_audio = _records_supports_audio()
     has_record_admin = True
     try:
         q_recs = """
-          SELECT r.id, r.created_at, r.role, r.content, r.topic, t.system, t."group", r.admin_like, r.admin_note
+          SELECT r.id, r.created_at, r.role, r.content, r.topic, t.system, t."group", r.admin_like, r.admin_note,
+                 {voice_select}
           FROM records r
           LEFT JOIN topics t ON t.id = r.topic
           WHERE r.project=%s AND r.user_id=%s
           ORDER BY r.created_at ASC
-        """
+        """.format(
+            voice_select="r.voice_input, r.audio_tokens" if include_audio else "false AS voice_input, 0 AS audio_tokens"
+        )
         rec_rows = g.db.query_database_all(q_recs, (project_id, respondent_id))
     except Exception:
         has_record_admin = False
         q_recs = """
-          SELECT r.id, r.created_at, r.role, r.content, r.topic, t.system, t."group"
+          SELECT r.id, r.created_at, r.role, r.content, r.topic, t.system, t."group",
+                 {voice_select}
           FROM records r
           LEFT JOIN topics t ON t.id = r.topic
           WHERE r.project=%s AND r.user_id=%s
           ORDER BY r.created_at ASC
-        """
+        """.format(
+            voice_select="r.voice_input, r.audio_tokens" if include_audio else "false AS voice_input, 0 AS audio_tokens"
+        )
         rec_rows = g.db.query_database_all(q_recs, (project_id, respondent_id))
     records_out = []
     for r in rec_rows:
@@ -1721,6 +1860,8 @@ def admin_get_session(project_id, respondent_id):
             "topic": r[4],
             "topic_label": r[5],
             "topic_group": r[6],
+            "voice_input": bool(r[9] if has_record_admin else r[7]),
+            "audio_tokens": int((r[10] if has_record_admin else r[8]) or 0),
         }
         if has_record_admin:
             record["admin_like"] = int(r[7] or 0)
@@ -1764,6 +1905,7 @@ def admin_get_session(project_id, respondent_id):
                 "answer_count": answer_count,
                 "last_activity_at": last_activity_at.isoformat() if last_activity_at else None,
                 "is_closed": bool(is_closed),
+                "is_seen": bool(resp_is_seen),
             },
             "records": records_out,
             "project": project_out,
@@ -1780,6 +1922,8 @@ def admin_update_session_annotation(project_id, respondent_id):
     payload = request.get_json() or {}
     admin_note = payload.get("admin_note")
     admin_like = payload.get("admin_like")
+    is_seen = payload.get("is_seen")
+    include_is_seen = _respondents_supports_is_seen()
     if admin_like is not None:
         try:
             admin_like = int(admin_like)
@@ -1787,6 +1931,13 @@ def admin_update_session_annotation(project_id, respondent_id):
             return _json_error("admin_like must be -1, 0, or 1", 400)
         if admin_like not in (-1, 0, 1):
             return _json_error("admin_like must be -1, 0, or 1", 400)
+    if is_seen is not None:
+        if not include_is_seen:
+            return _json_error("is_seen is not supported by current database schema", 400)
+        try:
+            is_seen = _coerce_optional_bool(is_seen)
+        except ValueError:
+            return _json_error("is_seen must be a boolean", 400)
 
     sets = []
     params = []
@@ -1796,6 +1947,9 @@ def admin_update_session_annotation(project_id, respondent_id):
     if admin_like is not None:
         sets.append("admin_like=%s")
         params.append(admin_like)
+    if is_seen is not None:
+        sets.append("is_seen=%s")
+        params.append(bool(is_seen))
     if not sets:
         return _json_error("No fields to update", 400)
 
@@ -2445,8 +2599,11 @@ def share_list_sessions(token):
                 "answer_count": int(row[6] or 0),
                 "last_activity_at": row[7].isoformat() if row[7] else None,
                 "is_closed": bool(row[8]),
-                "admin_like": int(row[9] or 0),
-                "admin_note": row[10],
+                "audio_tokens": int(row[9] or 0),
+                "audio_message_count": int(row[10] or 0),
+                "admin_like": int(row[11] or 0),
+                "admin_note": row[12],
+                "is_seen": bool(row[13]),
             }
         )
     return jsonify({"total": int(total or 0), "sessions": sessions_out, "project": {"id": project_id}})
@@ -2459,23 +2616,27 @@ def share_get_session(token, respondent_id):
         return err
     project_id = ctx["project_id"]
 
+    include_is_seen = _respondents_supports_is_seen()
     q_resp = """
-      SELECT id, created_at, external_id, persona_label, findings_summary, analyzed_at, admin_like, admin_note
+      SELECT id, created_at, external_id, persona_label, findings_summary, analyzed_at, admin_like, admin_note{seen_select}
       FROM respondents
       WHERE project=%s AND id=%s
       LIMIT 1
-    """
+    """.format(seen_select=", COALESCE(is_seen, false)" if include_is_seen else "")
     resp_row = g.db.query_database_one(q_resp, (project_id, respondent_id))
     if not resp_row:
         return _json_error("Session not found", 404)
+    resp_is_seen = bool(resp_row[8]) if include_is_seen else False
 
+    include_audio = _records_supports_audio()
     q_recs = """
-      SELECT r.id, r.created_at, r.role, r.content, r.topic, t.system, t."group"
+      SELECT r.id, r.created_at, r.role, r.content, r.topic, t.system, t."group",
+             {voice_select}
       FROM records r
       LEFT JOIN topics t ON t.id = r.topic
       WHERE r.project=%s AND r.user_id=%s AND r.role <> 'system'
       ORDER BY r.created_at ASC
-    """
+    """.format(voice_select="r.voice_input, r.audio_tokens" if include_audio else "false AS voice_input, 0 AS audio_tokens")
     rec_rows = g.db.query_database_all(q_recs, (project_id, respondent_id))
     records_out = []
     for r in rec_rows:
@@ -2488,6 +2649,8 @@ def share_get_session(token, respondent_id):
                 "topic": r[4],
                 "topic_label": r[5],
                 "topic_group": r[6],
+                "voice_input": bool(r[7]),
+                "audio_tokens": int(r[8] or 0),
             }
         )
 
@@ -2509,6 +2672,7 @@ def share_get_session(token, respondent_id):
                 "admin_like": int(resp_row[6] or 0),
                 "admin_note": resp_row[7],
                 "is_closed": bool(is_closed),
+                "is_seen": bool(resp_is_seen),
             },
             "records": records_out,
             "project": {"id": project_id, "name": proj[1] if proj else None},
@@ -2526,6 +2690,8 @@ def share_update_session_annotation(token, respondent_id):
     payload = request.get_json() or {}
     admin_note = payload.get("admin_note")
     admin_like = payload.get("admin_like")
+    is_seen = payload.get("is_seen")
+    include_is_seen = _respondents_supports_is_seen()
     if admin_like is not None:
         try:
             admin_like = int(admin_like)
@@ -2533,6 +2699,13 @@ def share_update_session_annotation(token, respondent_id):
             return _json_error("admin_like must be -1, 0, or 1", 400)
         if admin_like not in (-1, 0, 1):
             return _json_error("admin_like must be -1, 0, or 1", 400)
+    if is_seen is not None:
+        if not include_is_seen:
+            return _json_error("is_seen is not supported by current database schema", 400)
+        try:
+            is_seen = _coerce_optional_bool(is_seen)
+        except ValueError:
+            return _json_error("is_seen must be a boolean", 400)
 
     sets = []
     params = []
@@ -2542,6 +2715,9 @@ def share_update_session_annotation(token, respondent_id):
     if admin_like is not None:
         sets.append("admin_like=%s")
         params.append(admin_like)
+    if is_seen is not None:
+        sets.append("is_seen=%s")
+        params.append(bool(is_seen))
     if not sets:
         return _json_error("No fields to update", 400)
 
