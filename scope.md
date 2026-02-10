@@ -213,6 +213,7 @@ This file is the **source of truth** for what we expect to work and how we test 
 - **Auth model**:
   - Customer enters a password once; server sets a **signed httpOnly cookie** (requires `SECRET_KEY`).
   - Customer can **view** results, **export**, and add **session-level like/dislike + notes**.
+  - Customer can mark/unmark sessions as **seen** from the session header; this state persists in DB per project (`respondents.is_seen`).
 - **Rate-limit audit fallback**:
   - If `project_share_login_attempts` is missing/unavailable, login still works (rate limit + audit skipped, server logs a warning).
 - **Share APIs**:
@@ -229,12 +230,20 @@ This file is the **source of truth** for what we expect to work and how we test 
 - **Left sidebar**: sessions grouped by day, sorted latest, quick info (persona label, time, answer count, external_id). Show session/respondent ID with copy.
 - **Session timestamps**: each sidebar row shows a full local date/time stamp (e.g. `17 feb 2025 17:30`) plus a relative time label (e.g. `27 min ago`).
 - **Sidebar layout**: on desktop, **Sessions** and **Project properties** stack in the left column so the transcript panel stays aligned and no middle-column gap appears.
+- **Sidebar height**: in share view on desktop, the Sessions card fills available page height and the list scrolls inside the card.
 - **Session sorting**: sessions can be ordered by latest/oldest activity, responses count, and external_id A-Z/Z-A.
 - **Status badges**: sessions show **Open/Closed** state in the sidebar and in the session header.
+- **Seen state UX**:
+  - Session header includes an eye action to mark/unmark seen.
+  - Session rows can display a Seen badge.
+  - Filter toggle `Hide sessions marked as seen` excludes seen sessions via `hide_seen=1`.
 - **Projects list**: each project card shows a copyable interview link with a test `external_id` baked into the URL.
 - **Project header**: results page shows copyable Project ID and participation link (`/?interview=<project_id>&external_id=sample@user.com`).
 - **Search + filters layout**: full-width panel above session list + transcript (admin + share).
 - **Search**: full-width search input above sessions + transcripts (searches transcripts, persona, external_id, session id, notes).
+- **Quick toggles (share view)**:
+  - `Hide empty interviews` enforces `responses_min=1` and persists in localStorage by share token.
+  - `Hide sessions marked as seen` hides sessions marked seen in DB.
 - **Design preview**: `/results/sample` is a static UI appetizer page to validate the minimal light direction (no data fetching).
 - **Filters (pro builder)**:
   - Filter rows start with a **property selector**, then show only applicable operators/inputs.
@@ -244,6 +253,7 @@ This file is the **source of truth** for what we expect to work and how we test 
   - Responses count operators: at least / at most / between / equals.
   - Any filter should **drill down** results (no highlight-only behavior).
 - **Match snippets**: show matched snippet in the session list when search is active.
+- **Session note preview**: session cards expose custom note preview (first 100 chars + `...` when truncated).
 - **Body**: messenger-style transcript; system prompts hidden by default (admin can toggle).
 - **Transcript cleanup**: empty/blank messages are suppressed (no placeholder bubbles).
 - **Topic separators**: transcript inserts centered grey separators for the initial topic and any topic changes, using the topic label/title from `records.topic`.
@@ -282,6 +292,10 @@ This file is the **source of truth** for what we expect to work and how we test 
   - Admin can regenerate link + password in the share modal
   - Customer can login via share URL, view results read-only, export CSV
 - Customer share view: notes autosave works and no client-side runtime errors
+  - Customer share view: `Hide empty interviews` hides zero-response sessions and remains enabled after reload.
+  - Customer share view: `Hide sessions marked as seen` removes seen sessions from list.
+  - Customer share view: marking seen persists across reload and is shared at project level.
+  - Customer share view: sidebar note preview truncates to 100 chars + `...` for long notes.
   - Transcript shows topic separator chips when topics change (admin + share)
   - Topics table shows `title` values (short labels derived from `system`)
 
@@ -367,3 +381,14 @@ This file is the **source of truth** for what we expect to work and how we test 
 - (Optional) Install the pre-push hook once: `./scripts/install-git-hooks.sh`
 - Release flow:
   - Push to `staging` → verify staging → merge `staging` → `main` for production.
+
+## Engineering Guardrails (Agent Rules)
+
+- Cursor rules are intentionally minimal and active:
+  - `.cursor/rules/isolation_rules/Core/memory-bank-paths.mdc`
+  - `.cursor/rules/general-typescript-node-js-next-js-app-router-react-rule.mdc`
+  - `.cursor/rules/general-python-rules.mdc`
+- Python policy baseline:
+  - Keep backend changes compatible with Python `3.11` (matches `Dockerfile` and CI).
+  - Use `requirements.txt` with `pip` for dependency management unless an explicit migration is requested.
+- Interview screen UI constraints remain governed by `AGENTS.md`.

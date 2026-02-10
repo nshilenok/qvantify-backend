@@ -81,6 +81,7 @@ export type SessionListItem = {
   is_closed: boolean;
   admin_like?: number;
   admin_note?: string | null;
+  is_seen?: boolean;
   audio_tokens?: number;
   audio_message_count?: number;
 };
@@ -185,6 +186,7 @@ export type SessionDetail = {
     answer_count?: number;
     last_activity_at?: string | null;
     is_closed?: boolean;
+    is_seen?: boolean;
   };
   records: Array<{
     id: string;
@@ -253,7 +255,7 @@ export async function adminGetSession(projectId: string, respondentId: string, i
 export async function adminUpdateSessionAnnotation(
   projectId: string,
   respondentId: string,
-  patch: { admin_note?: string | null; admin_like?: -1 | 0 | 1 }
+  patch: { admin_note?: string | null; admin_like?: -1 | 0 | 1; is_seen?: boolean }
 ) {
   return apiFetch<{ ok: true }>(`/api/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(respondentId)}/annotation`, {
     method: "PUT",
@@ -351,7 +353,7 @@ export async function shareGetSession(token: string, respondentId: string) {
 export async function shareUpdateSessionAnnotation(
   token: string,
   respondentId: string,
-  patch: { admin_note?: string | null; admin_like?: -1 | 0 | 1 }
+  patch: { admin_note?: string | null; admin_like?: -1 | 0 | 1; is_seen?: boolean }
 ) {
   return apiFetch<{ ok: true }>(
     `/api/share/${encodeURIComponent(token)}/sessions/${encodeURIComponent(respondentId)}/annotation`,
