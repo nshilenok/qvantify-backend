@@ -1,6 +1,0 @@
----
-description: 
-globs: src/components/styled/**/*.js
-alwaysApply: false
----
-- Use the css prop for conditional styling when appropriate.

@@ -1,6 +1,0 @@
----
-description: 
-globs: **/requirements.txt
-alwaysApply: false
----
-- Always use UV when installing dependencies

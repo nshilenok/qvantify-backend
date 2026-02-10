@@ -1,6 +1,0 @@
----
-description: 
-globs: src/styles/theme.js
-alwaysApply: false
----
-- Implement a consistent theming system.

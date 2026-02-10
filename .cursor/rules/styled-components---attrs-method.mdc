@@ -1,6 +1,0 @@
----
-description: 
-globs: src/components/styled/**/*.js
-alwaysApply: false
----
-- Utilize styled-components' attrs method for frequently used props.
