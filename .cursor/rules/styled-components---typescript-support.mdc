@@ -1,0 +1,6 @@
+---
+description: 
+globs: src/components/styled/**/*.tsx
+alwaysApply: false
+---
+- Implement proper TypeScript support for styled-components.

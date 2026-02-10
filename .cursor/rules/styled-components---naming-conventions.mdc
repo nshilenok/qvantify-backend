@@ -1,0 +1,6 @@
+---
+description: 
+globs: src/components/styled/**/*.js
+alwaysApply: false
+---
+- Use proper naming conventions for styled components (e.g., StyledButton).
