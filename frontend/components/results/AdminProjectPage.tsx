@@ -139,7 +139,6 @@ export function AdminProjectPage() {
   const [selectAllMatching, setSelectAllMatching] = React.useState(false);
   const [excludedIds, setExcludedIds] = React.useState<Set<string>>(new Set());
   const [deleteModalOpen, setDeleteModalOpen] = React.useState(false);
-  const [hasMounted, setHasMounted] = React.useState(false);
   const queryClient = useQueryClient();
   const noteSaveTimer = React.useRef<number | null>(null);
   const noteDraftRef = React.useRef("");
@@ -154,9 +153,6 @@ export function AdminProjectPage() {
     () => Intl.DateTimeFormat().resolvedOptions().timeZone || "",
     []
   );
-  React.useEffect(() => {
-    setHasMounted(true);
-  }, []);
   const formatLocalTime = React.useCallback(
     (value?: string | null) => {
       if (!value) return "";
@@ -800,17 +796,17 @@ export function AdminProjectPage() {
     },
     [projectId, defaultExternalId]
   );
-  const participationPath = React.useMemo(
-    () => buildParticipationPath(defaultExternalId),
-    [buildParticipationPath, defaultExternalId]
+  const buildParticipationLink = React.useCallback(
+    (externalId?: string | null) => {
+      const base = getEnvironmentBase();
+      return `${base}${buildParticipationPath(externalId)}`;
+    },
+    [buildParticipationPath, getEnvironmentBase]
   );
-  const [participationLink, setParticipationLink] = React.useState(participationPath);
-  React.useEffect(() => {
-    if (typeof window === "undefined") return;
-    const base = getEnvironmentBase();
-    if (!base) return;
-    setParticipationLink(`${base}${participationPath}`);
-  }, [getEnvironmentBase, participationPath]);
+  const participationLink = React.useMemo(
+    () => buildParticipationLink(defaultExternalId),
+    [buildParticipationLink, defaultExternalId]
+  );
 
   const sharePath = React.useMemo(() => {
     if (activeShareLink?.share_path) return activeShareLink.share_path;
@@ -1050,7 +1046,7 @@ export function AdminProjectPage() {
     const title = s.persona_label || "Unnamed";
     const ts = s.last_activity_at || s.created_at;
     const dateTimeLabel = formatSidebarDateTime(ts);
-    const timeAgoLabel = hasMounted ? formatTimeAgo(ts) : "";
+    const timeAgoLabel = formatTimeAgo(ts);
     const snippet = search ? s.match_snippet : null;
     const isSelected = isSessionSelected(s.id);
     return (
