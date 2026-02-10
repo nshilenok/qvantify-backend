@@ -1,8 +1,0 @@
----
-description: 
-globs: **/*.py
-alwaysApply: false
----
-- Always use UV when installing dependencies.
-- Always use Python 3.12.
-- Always use classes instead of functions when appropriate.
