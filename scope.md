@@ -413,6 +413,8 @@ This file is the **source of truth** for what we expect to work and how we test 
   - `qvantify-frontend` serves both `staging.app.qvantify.com` and `app.qvantify.com`.
   - Never create a new Vercel project for frontend delivery.
   - Never use temporary public domain assignments; only stable app/staging domains are allowed.
+  - Git auto-deploy from root context is disabled (`vercel.json` -> `git.deploymentEnabled=false`) to avoid wrong-folder preview takeover.
+  - Frontend deploy is manual from `frontend/` only.
 - Runtime validation is mandatory before promotion:
   - Use `vercel curl --cwd frontend ... --deployment https://<staging-deploy>.vercel.app` for protected staging checks.
   - Verify `/interview?...` returns `200` and `/api/health` returns `200` with `x-qvantify-proxy-base: https://qvantify-staging.up.railway.app`.

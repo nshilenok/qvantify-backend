@@ -203,3 +203,39 @@ Current staging deploy after recovery:
 - `https://qvantify-frontend-ma9rgvezt-nikita-shilenoks-projects.vercel.app`
 - alias: `staging.app.qvantify.com`
 
+### 2026-02-16 (UTC) - Auto-preview takeover observed again after next push
+
+After pushing next commit to `staging`, `staging.app.qvantify.com` was reassigned to:
+- `dpl_HMpbmSinp6ni8gE7nXvuBavM63hk`
+- `https://qvantify-frontend-p4pv7eify-nikita-shilenoks-projects.vercel.app`
+
+Raw inspect evidence:
+```text
+"url": "qvantify-frontend-p4pv7eify-nikita-shilenoks-projects.vercel.app",
+"aliases": [
+  "staging.app.qvantify.com",
+  "qvantify-frontend-git-staging-nikita-shilenoks-projects.vercel.app"
+]
+...
+"vercelConfig": {
+  "builds": [
+    { "src": "api/[...path].cjs", "use": "@vercel/node" }
+  ]
+}
+```
+
+This deployment used root API-only config and is not a valid interview frontend deployment.
+
+Promotion guard check now fails fast (expected behavior):
+```text
+ERROR: Source staging deployment failed runtime validation: path=/interview?interview=swipking2&external_id=promotion_source_probe status=404 deployment=https://qvantify-frontend-p4pv7eify-nikita-shilenoks-projects.vercel.app
+```
+
+Hardening actions applied:
+- `scripts/promote_frontend_from_staging.py` now validates source staging runtime (`/interview` + `/api/health` + `x-qvantify-proxy-base`) before promotion.
+- Root `vercel.json` now includes:
+```json
+"git": { "deploymentEnabled": false }
+```
+to stop Git auto-deploy preview takeovers from root context.
+

@@ -56,6 +56,8 @@ This repo uses one frontend Vercel project and two backend Railway environments.
 - Keep domain ownership on `qvantify-frontend` only:
   - `app.qvantify.com` must target `production`
   - `staging.app.qvantify.com` must target `preview`
+- Git-triggered auto-deploys are disabled in root `vercel.json` (`git.deploymentEnabled=false`) to prevent wrong-context deployments from hijacking staging alias.
+- Frontend deployments are manual and must always be executed from `frontend/`.
 
 ### Local checks (run before every push)
 
