@@ -162,3 +162,44 @@ SAMPLE 200
   - header `x-qvantify-proxy-base` matches expected backend per domain
 - This turns previous silent failure mode into a fast failing pre-promotion check.
 
+### 2026-02-16 (UTC) - Post-commit validation caught a fresh bad auto-deploy
+
+After commit `240db903448b89bb3db6ddd7acee4e76bfeb8130` reached `staging`, Vercel auto-created:
+- `dpl_tagGcr2nJ5N4ZW64heizWvZMipND`
+- url: `qvantify-frontend-6bf4obicf-nikita-shilenoks-projects.vercel.app`
+
+The hardened verifier immediately failed with raw error:
+```text
+ERROR: Interview route check failed. domain=staging.app.qvantify.com deployment=https://qvantify-frontend-6bf4obicf-nikita-shilenoks-projects.vercel.app path=/interview?interview=swipking2&external_id=staging_smoke_probe status=404
+```
+
+`release_safety_check.py` also failed (by design) because alias runtime validation failed:
+```text
+ERROR: Domain alias check failed.
+ERROR: Interview route check failed. domain=staging.app.qvantify.com deployment=https://qvantify-frontend-6bf4obicf-nikita-shilenoks-projects.vercel.app path=/interview?interview=swipking2&external_id=staging_smoke_probe status=404
+
+Branch divergence: {"main_ahead": 9, "staging_ahead": 2}
+```
+
+Recovery actions:
+```bash
+vercel deploy --cwd frontend --local-config frontend/vercel.json --target=preview --yes
+vercel alias set qvantify-frontend-ma9rgvezt-nikita-shilenoks-projects.vercel.app staging.app.qvantify.com --scope nikita-shilenoks-projects
+python3 scripts/verify_domain_aliases.py
+python3 scripts/release_safety_check.py --repo-path . --allow-divergence
+```
+
+Recovery evidence (raw):
+```text
+Alias verification passed:
+- app.qvantify.com -> https://qvantify-frontend-mu9wyvmzs-nikita-shilenoks-projects.vercel.app (project=qvantify-frontend, target=production)
+- staging.app.qvantify.com -> https://qvantify-frontend-ma9rgvezt-nikita-shilenoks-projects.vercel.app (project=qvantify-frontend, target=preview)
+
+Release safety check passed.
+```
+
+Current staging deploy after recovery:
+- `dpl_GjtBFHbBFDvDAD3eHKR549UKgMye`
+- `https://qvantify-frontend-ma9rgvezt-nikita-shilenoks-projects.vercel.app`
+- alias: `staging.app.qvantify.com`
+
