@@ -48,7 +48,7 @@ class conversation():
 						row[2],
 						row[3]
 					)
-			records.append(record_row)
+				records.append(record_row)
 			return records
 
 		def _get_topic_meta(self, topic_id):
@@ -135,6 +135,18 @@ class conversation():
 			prompt = results or credentials.default_prompt
 			return self._render_prompt_template(prompt, topic_id or g.topic)
 
+		def buildModelMessages(self):
+			records = self.retrieveRecords()
+			system_prompt = self.retrieveTopic() + '\n \n' + self.getDefaultPrompt()
+			history = []
+			for message in records:
+				role = message[1]
+				content = message[2]
+				if role not in ("user", "assistant"):
+					continue
+				history.append({"role": role, "content": content})
+			return [{"role": "system", "content": system_prompt}] + history
+
 
 		def provideResponse(self,user_input=None):
 			promptType = self.topic_instance.getTopicType(g.topic)
@@ -146,28 +158,25 @@ class conversation():
 			else:
 				g.db.store_message("user", user_input)
 				return None
-			history = self.retrieveConverasationHistory()
+			messages = self.buildModelMessages()
 			system_prompt = self.retrieveTopic() + '\n \n' + self.getDefaultPrompt()
 
 
 			if promptType == "prompt" and getattr(g, 'topicIsChanging', None) is not None:
-
-				history.append({"role": "system", "content": system_prompt})
 				self.DB.store_message("system",system_prompt)
-				response = chatGPT.getResponse(history)
+				response = chatGPT.getResponse(messages)
 				self.DB.store_message("assistant",response.choices[0].message.content)
 				return response.choices[0].message.content
 
 			elif promptType == "prompt" and getattr(g, 'topicIsChanging', None) is None:
-				response = chatGPT.getResponse(history)
+				response = chatGPT.getResponse(messages)
 				logger.debug('===Generatint response===: %s', response)
 				self.DB.store_message("assistant", response.choices[0].message.content)
 				return response.choices[0].message.content
 
 			elif promptType == "auto" and getattr(g, 'topicIsChanging', None) is not None:
-				history.append({"role": "system", "content": system_prompt})
 				self.DB.store_message("system",system_prompt)
-				response = chatGPT.getResponse(history, autoTopic.function)
+				response = chatGPT.getResponse(messages, autoTopic.function)
 				if autoTopic.switchTopic(response):
 					logger.debug('===auto topic attempt 1: %s', g.topic)
 					answer = self.provideInitialResponse()
@@ -176,7 +185,7 @@ class conversation():
 				return response.choices[0].message.content
 
 			elif promptType == "auto" and getattr(g, 'topicIsChanging', None) is None:
-				response = chatGPT.getResponse(history, autoTopic.function)
+				response = chatGPT.getResponse(messages, autoTopic.function)
 				if autoTopic.switchTopic(response):
 					logger.debug('===auto topic attempt 2: %s', g.topic)
 					answer = self.provideInitialResponse()

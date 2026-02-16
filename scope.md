@@ -92,6 +92,32 @@ This file is the **source of truth** for what we expect to work and how we test 
 - **Voice input**:
   - `voice_enabled`: `true`
 
+### 6. Swipking2 Dopamine Interview (Seeded in DB)
+- **Project name**: `Swipking2`
+- **Project ID**: `swipking2`
+- **No welcome page**: `skip_welcome=true`
+- **Collect email**: `collect_email=false` (uses `external_id` instead)
+- **Entry URL example**: `/interview?interview=swipking2&external_id=sw2_user_001` (root `/?interview=...` redirects here)
+- **Topics**:
+  - `auto` × 15 (one per provided theme/question)
+  - Each topic `system` starts with: `CURRENT TOPIC: <provided theme>`
+  - Each topic `group` stores a very short theme label (not the full topic text)
+  - Topic switching happens when the model calls `interview_topic_over({"status":"done"})`
+- **Default prompt rules**:
+  - each topic should be covered in only a few questions maximum
+  - if one question is enough, complete the topic immediately
+  - never ask multiple questions in one assistant message
+  - do not reinvent/rephrase topic questions; use `CURRENT TOPIC` wording as source
+  - if a topic has multiple parts, split into separate one-question turns from exact topic fragments
+- **Reply context assembly contract (backend)**:
+  - outbound LLM context must include exactly one `system` message: the current topic system + rendered project `default_prompt`
+  - outbound history must include only `user` and `assistant` records
+  - legacy or DB-stored `system` records must not be replayed into outbound context
+  - streaming and non-streaming `/api/reply` paths must use the same context builder
+  - regression coverage: `tests/test_api_reply_message_construction.py`
+- **Production share-link workflow**:
+  - customer results access uses `/results/share/<token>` with a password from `project_share_links`
+
 ### 4. Regression Test Matrix (API + FE)
 - **API (pytest)**:
   - `/api/project`, `/api/respondent`, `/api/interview`, `/api/reply` (JSON) happy path

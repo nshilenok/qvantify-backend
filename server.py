@@ -810,20 +810,18 @@ def gpt_response():
             # Store user message once (matching conversationInterface behavior for prompt/auto)
             g.db.store_message("user", user_response)
 
-            history = chat.retrieveConverasationHistory()
-            system_prompt = chat.retrieveTopic() + "\n \n" + chat.getDefaultPrompt()
-
-            # Mirror existing logic: if topic is changing, append+store system prompt
+            # Keep system rows in records for audit when the topic changes.
             if getattr(g, 'topicIsChanging', None) is not None:
-                history.append({"role": "system", "content": system_prompt})
+                system_prompt = chat.retrieveTopic() + "\n \n" + chat.getDefaultPrompt()
                 chat.DB.store_message("system", system_prompt)
 
+            messages = chat.buildModelMessages()
             llm = LLM()
             tools = autoTopic.function if prompt_type == "auto" else None
 
             full = ""
             tool_call_names = []
-            for kind, val in llm.streamResponseOpenAI(history, tools=tools):
+            for kind, val in llm.streamResponseOpenAI(messages, tools=tools):
                 if kind == "delta":
                     full += val
                     yield sse(json.dumps({"type": "delta", "delta": val}))
