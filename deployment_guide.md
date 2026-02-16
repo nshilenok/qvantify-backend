@@ -118,6 +118,35 @@ python3 scripts/rollback_domains.py --snapshot "ops/checkpoints/checkpoint-<rele
 - `POST /api/share/<token>/login` does **not** return `Missing SECRET_KEY`
 - `python3 scripts/verify_domain_aliases.py` passes
 
+### Mandatory deploy logging (new rule)
+
+Every staging/production cycle must be logged in:
+
+- `ops/deploy_journal.md`
+
+Requirements:
+- append-only (do not edit previous entries),
+- include date/time/timezone per step,
+- include raw command outputs/errors without trimming,
+- include attempted actions, failures, and final fix path.
+
+This log is mandatory before requesting production promotion.
+
+### Runtime check commands (must pass, protection-aware)
+
+Use `vercel curl` (not plain `curl`) against deployment URL to bypass Vercel protection and validate actual runtime behavior:
+
+```bash
+vercel curl --cwd frontend '/api/health' --deployment https://<staging-deploy>.vercel.app -- --include --silent --show-error
+vercel curl --cwd frontend '/interview?interview=swipking2&external_id=staging_smoke_probe' --deployment https://<staging-deploy>.vercel.app -- --silent --show-error --location --output /dev/null --write-out 'STATUS:%{http_code}\n'
+python3 scripts/verify_domain_aliases.py
+```
+
+Expected:
+- `/api/health` status `200`
+- `x-qvantify-proxy-base: https://qvantify-staging.up.railway.app` on staging deployment
+- `/interview?...` status `200`
+
 ### Promotion checklist
 
 - Local checks passed
