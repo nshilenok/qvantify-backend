@@ -339,3 +339,98 @@ PROD_SWEEPKING 200
 PROD_SAMPLE 200
 ```
 
+### 2026-02-16 (UTC) - Skill audit + reflection hardening after production go-live
+
+Request: ensure deploy skills remain reusable next week and not chat-only.
+
+Actions completed:
+- Re-audited `.cursor/skills/qvantify-deploy/SKILL.md`.
+- Re-audited `.cursor/skills/qvantify-deploy/references/pipeline.md`.
+- Added dedicated reflection template:
+  - `.cursor/skills/qvantify-deploy/references/weekly-reflection.md`
+
+New mandatory behavior encoded in skill docs:
+- weekly reflection after every deploy cycle (including no-incident cycles),
+- explicit detection/rca/prevention sections,
+- explicit recurrence check for "would this fail again next week?",
+- explicit follow-up tracking.
+
+Purpose:
+- reduce repeated "start from zero" deployment troubleshooting,
+- keep reusable operational memory inside versioned skill docs,
+- keep raw evidence in `ops/deploy_journal.md` and structured retro in skill reference.
+
+### 2026-02-16 (UTC) - DB cascade delete hardening rollout
+
+Goal:
+- enforce logical cascades for wipe-coding:
+  - delete project => all project interview data removed;
+  - delete respondent/interview session => all respondent interview artifacts removed.
+
+Migration applied to DB:
+- `add_interview_data_cascade_foreign_keys`
+
+Schema parity update in repo:
+- `database_schema.sql` updated with FK + index definitions.
+- Migration SQL snapshot stored at:
+  - `ops/migrations/20260216_add_interview_data_cascades.sql`
+
+Raw verification (FK delete rules):
+```text
+interviews.project -> projects.id (CASCADE)
+interviews.respondent -> respondents.id (CASCADE)
+interviews_sentences.project -> projects.id (CASCADE)
+interviews_sentences.respondent -> respondents.id (CASCADE)
+project_share_links.project -> projects.id (CASCADE)
+project_share_login_attempts.share_link_id -> project_share_links.id (CASCADE)
+records.project -> projects.id (CASCADE)
+records.user_id -> respondents.id (CASCADE)
+respondents.project -> projects.id (CASCADE)
+topics.project -> projects.id (CASCADE)
+topics_log.user_id -> respondents.id (CASCADE)
+topics_log.topic_id -> topics.id (SET NULL)
+usage_stats.project -> projects.id (CASCADE)
+usage_stats.user_id -> respondents.id (CASCADE)
+```
+
+Raw verification (orphan checks):
+```text
+records_bad_project=0
+usage_stats_bad_project=0
+interviews_bad_project=0
+interviews_sentences_bad_project=0
+project_share_links_bad_project=0
+respondents_bad_project=0
+topics_bad_project=0
+records_bad_user_id=0
+topics_log_bad_user_id=0
+usage_stats_bad_user_id=0
+interviews_bad_respondent=0
+interviews_sentences_bad_respondent=0
+topics_log_bad_topic_id=0
+```
+
+Behavior validation (live DB using disposable project):
+```text
+respondent_delete:
+  interview_sentences_r1=0
+  interviews_r1=0
+  records_r1=0
+  topics_log_r1=0
+  usage_stats_r1=0
+  respondents_r1=0
+  respondents_r2=1
+  records_r2=1
+
+project_delete:
+  projects=0
+  respondents=0
+  topics=0
+  records=0
+  usage_stats=0
+  interviews=0
+  interviews_sentences=0
+  share_links=0
+  share_login_attempts=0
+```
+

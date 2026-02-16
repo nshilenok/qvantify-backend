@@ -88,3 +88,17 @@ If workflow changes or a new failure mode appears, update in the same cycle:
 - `.cursor/skills/qvantify-deploy/references/pipeline.md`
 - `deployment_guide.md`
 - `scope.md`
+
+## 10) Weekly reflection (mandatory)
+
+After deploy completion (and before closing the incident/release cycle):
+
+1) Append full raw timeline to `ops/deploy_journal.md`.
+2) Complete one reflection entry using:
+   - `.cursor/skills/qvantify-deploy/references/weekly-reflection.md`
+3) Record prevention deltas:
+   - script guardrails added/updated,
+   - new checks in runbook/skill,
+   - unresolved risks for next cycle.
+
+If no failure happened, still file a short "no incidents" reflection entry.

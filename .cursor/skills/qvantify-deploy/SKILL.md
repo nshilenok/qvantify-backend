@@ -124,6 +124,25 @@ If deploy process changes or a new failure mode appears, update in the same work
 
 Do not mark deployment workflow as "done" until these docs are updated.
 
+## Weekly reflection ritual (mandatory)
+
+After each deploy cycle (staging-only or staging->production), complete a short retro:
+
+1) Append raw timeline in `ops/deploy_journal.md`.
+2) Fill weekly reflection entry using template:
+   - `.cursor/skills/qvantify-deploy/references/weekly-reflection.md`
+3) Confirm prevention updates are explicit:
+   - script guardrails,
+   - skill/runbook updates,
+   - rollback and detection coverage.
+
+Minimum reflection questions:
+- Which failure mode happened?
+- Why detection was late or fast?
+- What now prevents recurrence next week?
+- What remains risky?
+
 ## Reference
 
 - Full runbook: `references/pipeline.md`
+- Weekly reflection template: `references/weekly-reflection.md`

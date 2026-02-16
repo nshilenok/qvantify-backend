@@ -412,6 +412,11 @@ This file is the **source of truth** for what we expect to work and how we test 
 - Deploy skill synchronization is mandatory:
   - If deploy workflow/checks change, update `.cursor/skills/qvantify-deploy/SKILL.md` and `.cursor/skills/qvantify-deploy/references/pipeline.md` in the same change cycle.
   - Do not close a deployment incident until skill docs are updated.
+  - After each deploy cycle, record a short retro using `.cursor/skills/qvantify-deploy/references/weekly-reflection.md` (no-incident cycles included).
+- DB cascade wipe contract (interview data):
+  - Deleting a respondent (`respondents.id`) cascades to interview artifacts: `records`, `topics_log`, `usage_stats`, `interviews`, `interviews_sentences`.
+  - Deleting a project (`projects.id`) cascades to project interview data: `respondents`, `topics`, `records`, `usage_stats`, `interviews`, `interviews_sentences`, `project_share_links`, and `project_share_login_attempts`.
+  - Migration reference: `add_interview_data_cascade_foreign_keys` (2026-02-16).
 - Frontend ownership and policy:
   - `qvantify-frontend` serves both `staging.app.qvantify.com` and `app.qvantify.com`.
   - Never create a new Vercel project for frontend delivery.

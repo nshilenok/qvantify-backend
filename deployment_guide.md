@@ -139,8 +139,22 @@ This log is mandatory before requesting production promotion.
 If deploy behavior, checks, or recovery steps change, update in the same cycle:
 - `.cursor/skills/qvantify-deploy/SKILL.md`
 - `.cursor/skills/qvantify-deploy/references/pipeline.md`
+- `.cursor/skills/qvantify-deploy/references/weekly-reflection.md` (use for post-cycle retro entries)
 
 Do not mark deployment work complete until skill docs are synced.
+
+### DB cascade wipe contract (new rule)
+
+Interview data deletion must rely on DB-enforced cascades (not fragile manual table order):
+
+- Respondent wipe root:
+  - `DELETE FROM respondents WHERE ...`
+  - cascades to `records`, `topics_log`, `usage_stats`, `interviews`, `interviews_sentences`.
+- Project wipe root:
+  - `DELETE FROM projects WHERE id = ...`
+  - cascades to `respondents`, `topics`, `records`, `usage_stats`, `interviews`, `interviews_sentences`, `project_share_links`, and `project_share_login_attempts`.
+
+Migration applied: `add_interview_data_cascade_foreign_keys` (2026-02-16).
 
 ### Runtime check commands (must pass, protection-aware)
 

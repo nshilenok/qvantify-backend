@@ -364,3 +364,135 @@ CREATE TABLE IF NOT EXISTS interviews_sentences (
     label TEXT,
     sub_cluster INTEGER
 );
+
+-- Indexes for interview/project relationships (cascade performance).
+CREATE INDEX IF NOT EXISTS respondents_project_idx ON respondents(project);
+CREATE INDEX IF NOT EXISTS topics_project_idx ON topics(project);
+CREATE INDEX IF NOT EXISTS records_user_id_idx ON records(user_id);
+CREATE INDEX IF NOT EXISTS records_project_idx ON records(project);
+CREATE INDEX IF NOT EXISTS topics_log_user_id_idx ON topics_log(user_id);
+CREATE INDEX IF NOT EXISTS topics_log_topic_id_idx ON topics_log(topic_id);
+CREATE INDEX IF NOT EXISTS usage_stats_user_id_idx ON usage_stats(user_id);
+CREATE INDEX IF NOT EXISTS usage_stats_project_idx ON usage_stats(project);
+CREATE INDEX IF NOT EXISTS interviews_respondent_idx ON interviews(respondent);
+CREATE INDEX IF NOT EXISTS interviews_project_idx ON interviews(project);
+CREATE INDEX IF NOT EXISTS interviews_sentences_respondent_idx ON interviews_sentences(respondent);
+CREATE INDEX IF NOT EXISTS interviews_sentences_project_idx ON interviews_sentences(project);
+
+-- Interview data foreign keys + cascade delete behavior.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'respondents_project_fkey') THEN
+    ALTER TABLE respondents
+      ADD CONSTRAINT respondents_project_fkey
+      FOREIGN KEY (project) REFERENCES projects(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'topics_project_fkey') THEN
+    ALTER TABLE topics
+      ADD CONSTRAINT topics_project_fkey
+      FOREIGN KEY (project) REFERENCES projects(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'project_share_links_project_fkey') THEN
+    ALTER TABLE project_share_links
+      ADD CONSTRAINT project_share_links_project_fkey
+      FOREIGN KEY (project) REFERENCES projects(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'records_user_id_fkey') THEN
+    ALTER TABLE records
+      ADD CONSTRAINT records_user_id_fkey
+      FOREIGN KEY (user_id) REFERENCES respondents(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'records_project_fkey') THEN
+    ALTER TABLE records
+      ADD CONSTRAINT records_project_fkey
+      FOREIGN KEY (project) REFERENCES projects(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'topics_log_user_id_fkey') THEN
+    ALTER TABLE topics_log
+      ADD CONSTRAINT topics_log_user_id_fkey
+      FOREIGN KEY (user_id) REFERENCES respondents(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'topics_log_topic_id_fkey') THEN
+    ALTER TABLE topics_log
+      ADD CONSTRAINT topics_log_topic_id_fkey
+      FOREIGN KEY (topic_id) REFERENCES topics(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'usage_stats_user_id_fkey') THEN
+    ALTER TABLE usage_stats
+      ADD CONSTRAINT usage_stats_user_id_fkey
+      FOREIGN KEY (user_id) REFERENCES respondents(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'usage_stats_project_fkey') THEN
+    ALTER TABLE usage_stats
+      ADD CONSTRAINT usage_stats_project_fkey
+      FOREIGN KEY (project) REFERENCES projects(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'interviews_respondent_fkey') THEN
+    ALTER TABLE interviews
+      ADD CONSTRAINT interviews_respondent_fkey
+      FOREIGN KEY (respondent) REFERENCES respondents(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'interviews_project_fkey') THEN
+    ALTER TABLE interviews
+      ADD CONSTRAINT interviews_project_fkey
+      FOREIGN KEY (project) REFERENCES projects(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'interviews_sentences_respondent_fkey') THEN
+    ALTER TABLE interviews_sentences
+      ADD CONSTRAINT interviews_sentences_respondent_fkey
+      FOREIGN KEY (respondent) REFERENCES respondents(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'interviews_sentences_project_fkey') THEN
+    ALTER TABLE interviews_sentences
+      ADD CONSTRAINT interviews_sentences_project_fkey
+      FOREIGN KEY (project) REFERENCES projects(id) ON DELETE CASCADE;
+  END IF;
+END $$;
