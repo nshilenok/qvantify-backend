@@ -239,3 +239,38 @@ Hardening actions applied:
 ```
 to stop Git auto-deploy preview takeovers from root context.
 
+### 2026-02-16 (UTC) - Final stabilization before production green signal
+
+Stabilization commit pushed to `staging`:
+- `cd6ad93` - "Prevent staging alias takeover and gate production promotion by runtime health."
+
+Then staging was redeployed manually from `frontend/` and re-aliased:
+```text
+Preview: https://qvantify-frontend-ommd0s9u1-nikita-shilenoks-projects.vercel.app
+Success! https://staging.app.qvantify.com now points to https://qvantify-frontend-ommd0s9u1-nikita-shilenoks-projects.vercel.app
+```
+
+Final readiness checks (raw):
+```text
+Alias verification passed:
+- app.qvantify.com -> https://qvantify-frontend-mu9wyvmzs-nikita-shilenoks-projects.vercel.app (project=qvantify-frontend, target=production)
+- staging.app.qvantify.com -> https://qvantify-frontend-ommd0s9u1-nikita-shilenoks-projects.vercel.app (project=qvantify-frontend, target=preview)
+
+Release safety check passed.
+```
+
+Final interview smoke probes on staging deployment:
+```text
+SWIPKING2 200
+SWEEPKING 200
+SAMPLE 200
+```
+
+Promotion dry-run (now points to validated staging source):
+```text
+Dry-run promotion plan:
+- Source deployment: https://qvantify-frontend-ommd0s9u1-nikita-shilenoks-projects.vercel.app
+- Command: vercel redeploy <source> --target production
+- Command: vercel alias set <new-production-deployment> app.qvantify.com
+```
+
