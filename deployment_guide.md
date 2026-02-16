@@ -134,6 +134,14 @@ Requirements:
 
 This log is mandatory before requesting production promotion.
 
+### Mandatory skill sync (new rule)
+
+If deploy behavior, checks, or recovery steps change, update in the same cycle:
+- `.cursor/skills/qvantify-deploy/SKILL.md`
+- `.cursor/skills/qvantify-deploy/references/pipeline.md`
+
+Do not mark deployment work complete until skill docs are synced.
+
 ### Runtime check commands (must pass, protection-aware)
 
 Use `vercel curl` (not plain `curl`) against deployment URL to bypass Vercel protection and validate actual runtime behavior:

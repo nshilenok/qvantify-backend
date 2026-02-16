@@ -409,6 +409,9 @@ This file is the **source of truth** for what we expect to work and how we test 
 - Deploy incident logging is mandatory:
   - Append every staging/production attempt to `ops/deploy_journal.md`.
   - Keep date/time + raw command outputs/errors without redaction.
+- Deploy skill synchronization is mandatory:
+  - If deploy workflow/checks change, update `.cursor/skills/qvantify-deploy/SKILL.md` and `.cursor/skills/qvantify-deploy/references/pipeline.md` in the same change cycle.
+  - Do not close a deployment incident until skill docs are updated.
 - Frontend ownership and policy:
   - `qvantify-frontend` serves both `staging.app.qvantify.com` and `app.qvantify.com`.
   - Never create a new Vercel project for frontend delivery.

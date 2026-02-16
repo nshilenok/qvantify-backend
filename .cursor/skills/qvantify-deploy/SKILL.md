@@ -1,86 +1,128 @@
 ---
 name: qvantify-deploy
-description: Deploy and promote Qvantify safely using the single frontend Vercel project and Railway backend environments. Use when deploying staging, promoting staging to production, verifying domain aliases, recovering from alias drift, or performing one-command rollback with a checkpoint snapshot.
+description: Deploy and promote Qvantify safely using one frontend Vercel project and Railway backends. Use for staging deploys, promotion to production, alias/runtime verification, rollback, and mandatory deploy incident logging + skill updates when process changes.
 ---
 
 # Qvantify Deploy
 
-## System Map (baby-language)
+## When to use
 
-- Repo `qvantify-backend` = full codebase (frontend + backend).
-- Vercel project `qvantify-frontend` = real web domains:
-  - `staging.app.qvantify.com`
-  - `app.qvantify.com`
-- Vercel project `qvantify-fullstack` = legacy only. Do not use it for app/staging domains.
-- Railway:
-  - staging backend: `https://qvantify-staging.up.railway.app`
-  - production backend: `https://qvantify.up.railway.app`
+Use this skill when:
+- deploying `staging`,
+- promoting validated staging to `production`,
+- repairing domain alias drift or wrong-context deploys,
+- recording deploy incidents,
+- updating deploy workflow documentation after discovering a new failure mode.
 
-## Simple Flow
+## Topology (source of truth)
 
-```mermaid
-flowchart LR
-  localCode["Local code"] --> stagingDeploy["Deploy frontend/ to staging domain"]
-  stagingDeploy --> stagingQa["Check staging.app.qvantify.com"]
-  stagingQa --> promoteProd["Promote same staging deploy"]
-  promoteProd --> prodLive["app.qvantify.com live"]
-```
+- Repo: `qvantify-backend` (frontend + backend code).
+- Frontend Vercel project: `qvantify-frontend`.
+  - `staging.app.qvantify.com` (preview target).
+  - `app.qvantify.com` (production target).
+- Legacy Vercel project: `qvantify-fullstack` (never use for app/staging domains).
+- Railway backends:
+  - staging: `https://qvantify-staging.up.railway.app`
+  - production: `https://qvantify.up.railway.app`
 
-## Safety-First Flow
+## Non-negotiable policy
 
-```mermaid
-flowchart TD
-  checkpoint["Create checkpoint tags + snapshot"] --> deployStaging["Deploy staging"]
-  deployStaging --> verifyAlias["Verify app/staging aliases"]
-  verifyAlias --> promote["Promote staging to production"]
-  promote --> verifyProd["Verify production health"]
-  verifyProd --> done["Done"]
-  verifyProd --> rollback["Run rollback script with snapshot"]
-```
+- Use only `qvantify-frontend` for public frontend domains.
+- Never use temporary public aliases for app traffic.
+- Root `vercel.json` keeps `git.deploymentEnabled=false` to prevent wrong-context Git auto-preview takeovers.
+- Frontend deploys are manual and run from `frontend/` only.
+- Every staging/production attempt is logged append-only in `ops/deploy_journal.md`.
 
-## Commands
+## Golden flow (must follow)
 
-### 1) Create checkpoint before risky changes
+### 0) Preflight checks
 
 ```bash
-python3 scripts/create_checkpoint.py --name "<date-or-release>"
-python3 scripts/rollback_domains.py --snapshot "ops/checkpoints/checkpoint-<date-or-release>.json"
+./scripts/local-release-checks.sh
+python3 scripts/release_safety_check.py --repo-path .
 ```
 
-### 2) Deploy frontend to staging
+### 1) Create rollback checkpoint before risky steps
+
+```bash
+python3 scripts/create_checkpoint.py --name "<release-name>"
+python3 scripts/rollback_domains.py --snapshot "ops/checkpoints/checkpoint-<release-name>.json"
+```
+
+### 2) Deploy staging from `frontend/`
 
 ```bash
 vercel link --cwd frontend --project qvantify-frontend --scope nikita-shilenoks-projects --yes
 vercel deploy --cwd frontend --local-config frontend/vercel.json --target=preview --yes
-vercel alias set <preview-url> staging.app.qvantify.com
+vercel alias set <preview-url> staging.app.qvantify.com --scope nikita-shilenoks-projects
+```
+
+### 3) Verify runtime (protection-aware)
+
+Use `vercel curl` with relative path + `--deployment`; do not rely on plain `curl` for protected staging.
+
+```bash
+python3 scripts/verify_domain_aliases.py
+vercel curl --cwd frontend --scope nikita-shilenoks-projects '/api/health' --deployment https://<staging-deploy>.vercel.app -- --include --silent --show-error
+vercel curl --cwd frontend --scope nikita-shilenoks-projects '/interview?interview=swipking2&external_id=staging_smoke_probe' --deployment https://<staging-deploy>.vercel.app -- --silent --show-error --location --output /dev/null --write-out 'STATUS:%{http_code}\n'
+```
+
+Expected:
+- `/api/health` status `200`,
+- `x-qvantify-proxy-base: https://qvantify-staging.up.railway.app`,
+- `/interview?...` status `200`.
+
+### 4) If staging fails with wrong-context preview (common failure)
+
+Signal:
+- `/interview?...` returns `404` on latest staging alias/deploy.
+
+Recovery:
+```bash
+vercel deploy --cwd frontend --local-config frontend/vercel.json --target=preview --yes
+vercel alias set <new-preview-url> staging.app.qvantify.com --scope nikita-shilenoks-projects
 python3 scripts/verify_domain_aliases.py
 ```
 
-### 3) Promote staging frontend to production
+### 5) Promotion readiness gate
+
+```bash
+python3 scripts/release_safety_check.py --repo-path . --allow-divergence
+python3 scripts/promote_frontend_from_staging.py
+```
+
+`promote_frontend_from_staging.py` is expected to fail fast if staging source runtime is invalid.
+
+### 6) Promote to production (only after green signal)
 
 ```bash
 python3 scripts/promote_frontend_from_staging.py --apply
 python3 scripts/verify_domain_aliases.py
 ```
 
-### 4) One-command rollback
+### 7) Rollback command (one step)
 
 ```bash
-python3 scripts/rollback_domains.py --snapshot "ops/checkpoints/checkpoint-<name>.json" --apply
+python3 scripts/rollback_domains.py --snapshot "ops/checkpoints/checkpoint-<release-name>.json" --apply
 ```
 
-## Mandatory Rules
+## Mandatory deploy incident logging
 
-### Project policy (non-negotiable)
-- Never create new Vercel projects. Use only the existing `qvantify-frontend` project.
-- Never use temporary domain assignments. Only `app.qvantify.com` and `staging.app.qvantify.com` are valid public entry domains.
-- Keep stable domain ownership on `qvantify-frontend` only. App/staging domains must never be attached to `qvantify-fullstack` or any other project.
+For every staging/production cycle, append to `ops/deploy_journal.md`:
+- date/time/timezone per step,
+- raw command outputs and raw errors,
+- attempts, failures, and final recovery path.
 
-### Deployment policy
-- Always deploy frontend from `frontend/` using `vercel link --project qvantify-frontend`.
-- Always keep `app.qvantify.com` and `staging.app.qvantify.com` on `qvantify-frontend-*` deployments.
-- Never alias app/staging domains to `qvantify-fullstack`.
-- Always create a checkpoint before branch realignment or production promotion.
+Never rewrite previous entries (append-only).
+
+## Mandatory skill maintenance contract
+
+If deploy process changes or a new failure mode appears, update in the same work cycle:
+- `.cursor/skills/qvantify-deploy/SKILL.md`,
+- `.cursor/skills/qvantify-deploy/references/pipeline.md`,
+- `deployment_guide.md` and `scope.md` when policy/checklist changes.
+
+Do not mark deployment workflow as "done" until these docs are updated.
 
 ## Reference
 
