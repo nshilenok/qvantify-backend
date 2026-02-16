@@ -274,3 +274,68 @@ Dry-run promotion plan:
 - Command: vercel alias set <new-production-deployment> app.qvantify.com
 ```
 
+### 2026-02-16 (UTC) - Production promotion execution
+
+Green signal received for production promotion.
+
+Pre-promotion gates (raw):
+```text
+Alias verification passed:
+- app.qvantify.com -> https://qvantify-frontend-mu9wyvmzs-nikita-shilenoks-projects.vercel.app (project=qvantify-frontend, target=production)
+- staging.app.qvantify.com -> https://qvantify-frontend-ommd0s9u1-nikita-shilenoks-projects.vercel.app (project=qvantify-frontend, target=preview)
+
+Dry-run promotion plan:
+- Source deployment: https://qvantify-frontend-ommd0s9u1-nikita-shilenoks-projects.vercel.app
+- Command: vercel redeploy <source> --target production
+- Command: vercel alias set <new-production-deployment> app.qvantify.com
+```
+
+Branch sync attempt encountered local git worktree issue:
+```text
+fatal: 'main' is already used by worktree at '/Users/nikitashilenok/vibe projects 2026/projects/qvantify-fullstack/.git/worktrees/main/.worktrees/main'
+```
+
+Workaround used:
+- merge `origin/main` into current `staging` worktree,
+- push `staging`,
+- push `staging:main` (fast-forward main without force).
+
+Raw branch sync evidence:
+```text
+To https://github.com/nshilenok/qvantify-backend.git
+   a6f09d5..0185616  staging -> staging
+To https://github.com/nshilenok/qvantify-backend.git
+   9944239..0185616  staging -> main
+0	0
+```
+
+Production promotion command:
+```bash
+python3 scripts/promote_frontend_from_staging.py --apply
+```
+
+Raw promotion output:
+```text
+> Success! https://app.qvantify.com now points to https://qvantify-frontend-ibzf8jobc-nikita-shilenoks-projects.vercel.app
+Production alias updated: app.qvantify.com -> https://qvantify-frontend-ibzf8jobc-nikita-shilenoks-projects.vercel.app
+```
+
+Post-promotion validation:
+```text
+Branch divergence: {"main_ahead": 0, "staging_ahead": 0}
+Alias verification passed:
+- app.qvantify.com -> https://qvantify-frontend-ibzf8jobc-nikita-shilenoks-projects.vercel.app (project=qvantify-frontend, target=production)
+- staging.app.qvantify.com -> https://qvantify-frontend-ommd0s9u1-nikita-shilenoks-projects.vercel.app (project=qvantify-frontend, target=preview)
+Release safety check passed.
+```
+
+HTTP/runtime checks:
+```text
+HTTP/2 200
+x-qvantify-proxy-base: https://qvantify.up.railway.app
+...
+PROD_SWIPKING2 200
+PROD_SWEEPKING 200
+PROD_SAMPLE 200
+```
+
