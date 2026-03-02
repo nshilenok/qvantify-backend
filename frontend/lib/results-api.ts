@@ -119,6 +119,7 @@ export type AdminProjectDetail = {
   inline_consent?: boolean | null;
   voice_enabled?: boolean | null;
   model?: string | null;
+  reasoning_effort?: string | null;
   temperature?: number | null;
   max_tokens?: number | null;
   top_p?: number | null;

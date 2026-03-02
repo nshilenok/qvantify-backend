@@ -287,6 +287,7 @@ CREATE TABLE IF NOT EXISTS projects (
     inline_consent BOOLEAN,
     voice_enabled BOOLEAN NOT NULL DEFAULT false,
     model TEXT,
+    reasoning_effort TEXT DEFAULT 'low',
     temperature FLOAT,
     max_tokens INTEGER,
     top_p FLOAT,
@@ -297,9 +298,13 @@ CREATE TABLE IF NOT EXISTS projects (
 ALTER TABLE IF EXISTS projects ADD COLUMN IF NOT EXISTS abort_title TEXT;
 ALTER TABLE IF EXISTS projects ADD COLUMN IF NOT EXISTS abort_message TEXT;
 ALTER TABLE IF EXISTS projects ADD COLUMN IF NOT EXISTS voice_enabled BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE IF EXISTS projects ADD COLUMN IF NOT EXISTS reasoning_effort TEXT DEFAULT 'low';
 ALTER TABLE IF EXISTS records ADD COLUMN IF NOT EXISTS voice_input BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE IF EXISTS records ADD COLUMN IF NOT EXISTS audio_tokens INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE IF EXISTS respondents ADD COLUMN IF NOT EXISTS is_seen BOOLEAN NOT NULL DEFAULT false;
+UPDATE projects
+SET reasoning_effort = 'low'
+WHERE reasoning_effort IS NULL OR btrim(reasoning_effort) = '';
 
 UPDATE projects
 SET abort_title = 'Aborted',
@@ -309,6 +314,11 @@ WHERE id = 'd0aaae3f-b133-4099-a6fb-9509ed750a24';
 UPDATE projects
 SET voice_enabled = true
 WHERE id = 'd0aaae3f-b133-4099-a6fb-9509ed750a24';
+
+UPDATE projects
+SET model = 'gpt-5.2',
+    api = 'openai',
+    reasoning_effort = 'low';
 
 CREATE TABLE IF NOT EXISTS topics (
     id TEXT PRIMARY KEY,

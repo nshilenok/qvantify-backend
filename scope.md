@@ -118,6 +118,26 @@ This file is the **source of truth** for what we expect to work and how we test 
 - **Production share-link workflow**:
   - customer results access uses `/results/share/<token>` with a password from `project_share_links`
 
+### 7. Swipking3 Purchase Conversion Interview (Seeded in DB)
+- **Project name**: `Swipking3`
+- **Project ID**: `swipking3`
+- **No welcome page**: `skip_welcome=true`
+- **Collect email**: `collect_email=false` (uses `external_id` instead)
+- **Entry URL example**: `/interview?interview=swipking3&external_id=sw3_user_001` (root `/?interview=...` redirects here)
+- **Topics**:
+  - `auto` × 11 (translated from Russian; focused on purchase conversion barriers)
+  - Each topic `system` starts with: `CURRENT TOPIC: <translated theme>`
+  - Each topic `group` stores a short theme label (e.g. Purchase Attempt, Purchase Blockers, Worth Threshold)
+  - Topic switching happens when the model calls `interview_topic_over({"status":"done"})`
+- **Default prompt rules** (inherited from swipking2):
+  - each topic should be covered in only a few questions maximum
+  - if one question is enough, complete the topic immediately
+  - never ask multiple questions in one assistant message
+  - do not reinvent/rephrase topic questions; use `CURRENT TOPIC` wording as source
+  - if a topic has multiple parts, split into separate one-question turns from exact topic fragments
+- **Production share-link workflow**:
+  - customer results access uses `/results/share/<token>` with a password from `project_share_links`
+
 ### 4. Regression Test Matrix (API + FE)
 - **API (pytest)**:
   - `/api/project`, `/api/respondent`, `/api/interview`, `/api/reply` (JSON) happy path

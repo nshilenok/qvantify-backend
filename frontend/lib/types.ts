@@ -34,11 +34,22 @@ export interface ProgressState {
   ratio: number;
 }
 
+export interface DebugInfo {
+  model: string | null;
+  reasoning_effort: string | null;
+  topic_title: string | null;
+  user_id: string | null;
+  external_id: string | null;
+  developer_prompt: string | null;
+}
+
 export interface InterviewResponse {
   response: string;
   status: "open" | "closed" | string;
   answers?: unknown[];
   progress?: ProgressState;
+  version?: string;
+  _debug?: DebugInfo;
 }
 
 export type ReplyResponse = InterviewResponse;

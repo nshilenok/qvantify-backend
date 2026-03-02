@@ -33,39 +33,55 @@ class LLM():
 		query_params = (self.project,)
 		response = None
 		max_token_value = None
+		has_reasoning_effort = False
 		try:
-			query = "select model,temperature,max_tokens,top_p,api from projects where id=%s"
+			query = "select model,temperature,max_tokens,top_p,api,reasoning_effort from projects where id=%s"
 			response = self.DB.query_database_one(query,query_params)
+			has_reasoning_effort = True
 			if response:
 				max_token_value = response[2]
 		except Exception as e:
 			logger.warning("Project config missing max_tokens; falling back to max_completion_tokens: %s", str(e))
-			query = "select model,temperature,max_completion_tokens,top_p,api from projects where id=%s"
-			response = self.DB.query_database_one(query,query_params)
-			if response:
-				max_token_value = response[2]
+			try:
+				query = "select model,temperature,max_completion_tokens,top_p,api,reasoning_effort from projects where id=%s"
+				response = self.DB.query_database_one(query,query_params)
+				has_reasoning_effort = True
+				if response:
+					max_token_value = response[2]
+			except Exception as e:
+				logger.warning("Project config missing reasoning_effort; falling back to legacy columns: %s", str(e))
+				try:
+					query = "select model,temperature,max_tokens,top_p,api from projects where id=%s"
+					response = self.DB.query_database_one(query,query_params)
+					has_reasoning_effort = False
+					if response:
+						max_token_value = response[2]
+				except Exception as e:
+					logger.warning("Project config missing max_tokens; falling back to max_completion_tokens without reasoning_effort: %s", str(e))
+					query = "select model,temperature,max_completion_tokens,top_p,api from projects where id=%s"
+					response = self.DB.query_database_one(query,query_params)
+					has_reasoning_effort = False
+					if response:
+						max_token_value = response[2]
 		default_values = {
 		'model': 'gpt-5.2',
 		'temperature': 1,
-		'max_tokens': 256,
-		'top_p': 1
-		}
-		analysis_values = {
-		'model': 'gpt-5.2',
-		'temperature': 1,
-		'max_tokens': 512,
-		'top_p': 1
+		'top_p': 1,
+		'reasoning_effort': 'low'
 		}
 		if response:
+			reasoning_effort = response[5] if has_reasoning_effort and len(response) > 5 else None
 			config = {
 			'model': response[0] if response[0] is not None else default_values['model'],
 			'temperature': response[1] if response[1] is not None else default_values['temperature'],
-			'max_tokens': max_token_value if max_token_value is not None else default_values['max_tokens'],
-			'top_p': response[3] if response[3] is not None else default_values['top_p']
+			'top_p': response[3] if response[3] is not None else default_values['top_p'],
+			'reasoning_effort': reasoning_effort if reasoning_effort is not None else default_values['reasoning_effort']
 			}
+			if max_token_value is not None:
+				config['max_tokens'] = max_token_value
 			return config
 		else:
-			return analysis_values
+			return default_values
 
 	def getApi(self):
 		query = "select api from projects where id=%s"
@@ -77,8 +93,39 @@ class LLM():
 			api = "openai"
 		return api
 
+	def _prepare_openai_chat_config(self):
+		config = dict(self.config)
+		model_name = str(config.get("model", ""))
+		if model_name.startswith("gpt-5"):
+			if "max_tokens" in config:
+				config["max_completion_tokens"] = config.pop("max_tokens")
+			reasoning_effort = str(config.get("reasoning_effort", "") or "").strip()
+			config["reasoning_effort"] = reasoning_effort or "low"
+		else:
+			config.pop("reasoning_effort", None)
+		return config
+
+	def _prepare_openai_messages(self, messages, config):
+		model_name = str(config.get("model", "") or "")
+		if not model_name.startswith("gpt-5"):
+			return messages
+		prepared_messages = []
+		for idx, message in enumerate(messages or []):
+			if idx == 0 and isinstance(message, dict) and message.get("role") == "system":
+				updated_message = dict(message)
+				updated_message["role"] = "developer"
+				prepared_messages.append(updated_message)
+			else:
+				prepared_messages.append(message)
+		return prepared_messages
+
+	def _prepare_azure_chat_config(self):
+		config = dict(self.config)
+		config.pop("reasoning_effort", None)
+		return config
+
 	def getResponseAzure(self,messages,tools=None,tool_choice=None):
-		config = self.config
+		config = self._prepare_azure_chat_config()
 		os.environ["AZURE_OPENAI_API_KEY"] = credentials.azureopenai_key
 		client = AzureOpenAI(api_version="2023-09-01-preview",azure_endpoint="https://qvantify-se.openai.azure.com")
 		if tools:
@@ -95,11 +142,8 @@ class LLM():
 
 
 	def getResponseOpenAI(self,messages,tools=None,tool_choice=None):
-		config = dict(self.config)
-		# OpenAI gpt-5.* models require max_completion_tokens instead of max_tokens.
-		if str(config.get("model", "")).startswith("gpt-5"):
-			if "max_tokens" in config:
-				config["max_completion_tokens"] = config.pop("max_tokens")
+		config = self._prepare_openai_chat_config()
+		prepared_messages = self._prepare_openai_messages(messages, config)
 		os.environ["OPENAI_API_KEY"] = self.key
 		client = OpenAI() 
 		# region agent log
@@ -126,11 +170,11 @@ class LLM():
 		# endregion agent log
 		if tools:
 			if tool_choice:
-				response = client.chat.completions.create(**config,messages=messages,tools=tools,tool_choice=tool_choice)
+				response = client.chat.completions.create(**config,messages=prepared_messages,tools=tools,tool_choice=tool_choice)
 			else:
-				response = client.chat.completions.create(**config,messages=messages,tools=tools)
+				response = client.chat.completions.create(**config,messages=prepared_messages,tools=tools)
 		else:
-			response = client.chat.completions.create(**config,messages=messages)
+			response = client.chat.completions.create(**config,messages=prepared_messages)
 		# region agent log
 		try:
 			import json as _json
@@ -165,18 +209,15 @@ class LLM():
 		- ("tool_call", dict) for tool call deltas (best-effort passthrough)
 		- ("done", None) at end
 		"""
-		config = dict(self.config)
-		# OpenAI gpt-5.* models require max_completion_tokens instead of max_tokens.
-		if str(config.get("model", "")).startswith("gpt-5"):
-			if "max_tokens" in config:
-				config["max_completion_tokens"] = config.pop("max_tokens")
+		config = self._prepare_openai_chat_config()
+		prepared_messages = self._prepare_openai_messages(messages, config)
 		os.environ["OPENAI_API_KEY"] = self.key
 		client = OpenAI()
 		try:
 			if tools:
-				stream = client.chat.completions.create(**config, messages=messages, tools=tools, stream=True)
+				stream = client.chat.completions.create(**config, messages=prepared_messages, tools=tools, stream=True)
 			else:
-				stream = client.chat.completions.create(**config, messages=messages, stream=True)
+				stream = client.chat.completions.create(**config, messages=prepared_messages, stream=True)
 			for chunk in stream:
 				if not getattr(chunk, "choices", None):
 					continue

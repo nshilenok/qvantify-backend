@@ -1,18 +1,27 @@
 from flask import g
 
-function = [{
-    	"type": "function",
-    	"function":{
+function = [
+	{
+		"type": "function",
+		"function": {
 			"name": "interview_topic_over",
-			"description": "Call it when you consider the information provided by the user to be sufficient according to the system prompt earlier.",
+			"description": "Call only when CURRENT TOPIC is complete and ready to switch.",
+			"strict": True,
 			"parameters": {
 				"type": "object",
+				"additionalProperties": False,
 				"properties": {
-					"status": 
-						{"type": "string", "enum": ["done"],
-						"description": "Topic status, where done means that all information have been provided by the user."}
-                }}}
-                }]
+					"status": {
+						"type": "string",
+						"enum": ["done"],
+						"description": "Topic status. done means the topic has sufficient user information."
+					}
+				},
+				"required": ["status"]
+			}
+		}
+	}
+]
 
 def switchTopic(response):
 	response_message = response.choices[0].message

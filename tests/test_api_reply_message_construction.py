@@ -171,3 +171,181 @@ def test_streaming_path_reuses_canonical_builder():
     assert "messages = chat.buildModelMessages()" in source
     assert "llm.streamResponseOpenAI(messages, tools=tools)" in source
 
+
+def test_provide_initial_response_on_topic_switch_includes_prior_history(app_ctx, monkeypatch):
+    """
+    Regression: when a topic switch occurs, provideInitialResponse must send the full
+    prior conversation history to the LLM, not just the new system prompt.
+    Without the fix the user's "no" answer on topic 1 would be invisible to topic 2.
+    """
+    records = [
+        # Topic 1 exchange: assistant asked, user answered "no"
+        (datetime.now(timezone.utc), "assistant", "Have you ever tried to make a purchase?", "swipking3_t01"),
+        (datetime.now(timezone.utc), "user", "no", "swipking3_t01"),
+    ]
+    db = _DBStub(records)
+
+    # Simulate being on the new topic (t02) after a switch
+    g.projectId = "swipking3"
+    g.uuid = "test-user"
+    g.topic = "swipking3_t02"
+    g.baseTopic = "swipking3_t02"
+    g.topicIsChanging = True
+    g.db = db
+
+    _LLMStub.last_messages = None
+    monkeypatch.setattr(ci, "LLM", _LLMStub)
+
+    topic_stub = _TopicStub(topic_type="auto")
+    # Override findTopicById for new topic
+    topic_stub.findTopicById = lambda tid: (2, tid, "CURRENT TOPIC: Why haven't you bought yet?", 2)
+
+    chat = ci.conversation(topic_stub)
+    chat.getDefaultPrompt = lambda topic_id=None: "DEFAULT PROMPT: one question only"
+
+    out = chat.provideInitialResponse()
+    assert out == "assistant result"
+
+    sent = _LLMStub.last_messages
+    assert sent is not None, "LLM was not called"
+
+    # System prompt must be present and be the new topic's prompt
+    assert sent[0]["role"] == "system"
+    assert "CURRENT TOPIC: Why haven't you bought yet?" in sent[0]["content"]
+
+    # Prior user/assistant turns must be present
+    roles_after_system = [m["role"] for m in sent[1:]]
+    assert "user" in roles_after_system, "Prior user turn missing from LLM context on topic switch"
+    assert "assistant" in roles_after_system, "Prior assistant turn missing from LLM context on topic switch"
+
+    # The actual "no" answer must be in context
+    all_content = "\n".join(m["content"] for m in sent)
+    assert "no" in all_content, "User's prior answer not present in LLM context on topic switch"
+
+    # Tools must be passed for auto topics
+    assert _LLMStub.last_tools is not None, "autoTopic.function tools not passed for auto topic in provideInitialResponse"
+
+
+def test_provide_initial_response_auto_passes_tools(app_ctx, monkeypatch):
+    """provideInitialResponse must pass autoTopic.function tools for auto topics."""
+    db = _DBStub([])
+    g.projectId = "swipking3"
+    g.uuid = "test-user"
+    g.topic = "swipking3_t01"
+    g.baseTopic = "swipking3_t01"
+    g.topicIsChanging = True
+    g.db = db
+
+    _LLMStub.last_tools = None
+    monkeypatch.setattr(ci, "LLM", _LLMStub)
+
+    chat = ci.conversation(_TopicStub(topic_type="auto"))
+    chat.getDefaultPrompt = lambda topic_id=None: "DEFAULT PROMPT"
+
+    chat.provideInitialResponse()
+
+    assert _LLMStub.last_tools is not None, "Tools should be passed for auto topics"
+    assert _LLMStub.last_tools[0]["function"]["name"] == "interview_topic_over"
+
+
+def test_provide_initial_response_prompt_no_tools(app_ctx, monkeypatch):
+    """provideInitialResponse must NOT pass tools for prompt topics."""
+    db = _DBStub([])
+    g.projectId = "swipking2"
+    g.uuid = "test-user"
+    g.topic = "swipking2_t01"
+    g.baseTopic = "swipking2_t01"
+    g.topicIsChanging = True
+    g.db = db
+
+    _LLMStub.last_tools = "SENTINEL"
+    monkeypatch.setattr(ci, "LLM", _LLMStub)
+
+    chat = ci.conversation(_TopicStub(topic_type="prompt"))
+    chat.getDefaultPrompt = lambda topic_id=None: "DEFAULT PROMPT"
+
+    chat.provideInitialResponse()
+
+    assert _LLMStub.last_tools is None, "Tools should NOT be passed for prompt topics"
+
+
+def test_messages_are_strictly_chronological_after_topic_switch(app_ctx, monkeypatch):
+    """After a topic switch, the messages sent to the LLM must be in strict
+    chronological order: [developer, assistant, user, assistant, user, ...].
+    No consecutive same-role messages allowed."""
+    now = datetime.now(timezone.utc)
+    records = [
+        (now, "system", "OLD SYSTEM", "swipking3_t00"),
+        (now, "assistant", "Welcome! Ready?", "swipking3_t00"),
+        (now, "user", "yes", "swipking3_t00"),
+        (now, "assistant", "Have you ever tried to make a purchase?", "swipking3_t01"),
+        (now, "user", "no", "swipking3_t01"),
+    ]
+    db = _DBStub(records)
+    g.projectId = "swipking3"
+    g.uuid = "test-user"
+    g.topic = "swipking3_t02"
+    g.baseTopic = "swipking3_t02"
+    g.topicIsChanging = True
+    g.db = db
+
+    _LLMStub.last_messages = None
+    monkeypatch.setattr(ci, "LLM", _LLMStub)
+
+    topic_stub = _TopicStub(topic_type="prompt")
+    topic_stub.findTopicById = lambda tid: (3, tid, "CURRENT TOPIC: Scenario B question", 3)
+    chat = ci.conversation(topic_stub)
+    chat.getDefaultPrompt = lambda topic_id=None: "DEFAULT PROMPT"
+
+    chat.provideInitialResponse()
+    sent = _LLMStub.last_messages
+    assert sent is not None
+
+    # First message must be system/developer
+    assert sent[0]["role"] == "system"
+
+    # Remaining messages must alternate assistant/user and be in chronological order
+    roles = [m["role"] for m in sent[1:]]
+    for i in range(1, len(roles)):
+        assert roles[i] != roles[i - 1], (
+            f"Consecutive same-role messages at positions {i-1},{i}: "
+            f"{roles[i-1]}, {roles[i]} — full roles: {roles}"
+        )
+
+    # The user's "no" must be present
+    contents = [m["content"] for m in sent]
+    assert "no" in contents, "User's 'no' answer must be in LLM context"
+
+    # The old system prompt must NOT be in the messages
+    joined = "\n".join(contents)
+    assert "OLD SYSTEM" not in joined
+
+
+def test_tool_history_never_leaks_into_messages(app_ctx, monkeypatch):
+    """Records with role 'tool' or 'function' must never appear in buildModelMessages.
+    Even if such rows existed in the DB, they must be filtered out."""
+    now = datetime.now(timezone.utc)
+    records = [
+        (now, "assistant", "Have you ever tried?", "t01"),
+        (now, "user", "no", "t01"),
+        (now, "tool", '{"status":"done"}', "t01"),
+        (now, "function", '{"result":"ok"}', "t01"),
+        (now, "system", "SYSTEM MSG", "t01"),
+    ]
+    db = _DBStub(records)
+    g.projectId = "swipking3"
+    g.uuid = "test-user"
+    g.topic = "t02"
+    g.baseTopic = "t02"
+    g.db = db
+
+    chat = ci.conversation(_TopicStub())
+    chat.getDefaultPrompt = lambda topic_id=None: "DEFAULT"
+
+    messages = chat.buildModelMessages()
+    roles = [m["role"] for m in messages]
+    assert "tool" not in roles, "tool role must never be in messages"
+    assert "function" not in roles, "function role must never be in messages"
+    assert roles.count("system") == 1, "Only one system message (the fresh prompt)"
+    assert roles == ["system", "assistant", "user"]
+

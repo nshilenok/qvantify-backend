@@ -238,65 +238,65 @@ class conversation():
 				pass
 			# endregion agent log
 			
-			if getattr(g, 'topicIsChanging', None) is not None:
+			if promptType == "prompt" or promptType == "auto":
+				logger.debug('Initial Response (prompt or auto): %s', getattr(g, 'topicIsChanging', None))
+				self.DB.store_message("system", system_prompt)
+				history = self.buildModelMessages()
+				# region agent log
+				try:
+					import json as _json
+					from datetime import datetime as _dt
+					payload = {
+						"sessionId": "debug-session",
+						"runId": "run1",
+						"hypothesisId": "H3",
+						"location": "conversationInterface.py:provideInitialResponse",
+						"message": "calling LLM for initial response",
+						"data": {"history_len": len(history)},
+						"timestamp": int(_dt.now().timestamp() * 1000),
+					}
+					with open(
+						"/Users/nikitashilenok/Documents/vibecoding projects/qvantify-fullstack/.cursor/debug.log",
+						"a",
+						encoding="utf-8",
+					) as f:
+						f.write(_json.dumps(payload) + "\n")
+				except Exception:
+					pass
+				# endregion agent log
+				tools = autoTopic.function if promptType == "auto" else None
+				response = chatGPT.getResponse(history, tools)
+				if promptType == "auto" and autoTopic.switchTopic(response):
+					return self.provideInitialResponse()
+				self.DB.store_message("assistant",response.choices[0].message.content)
+				# region agent log
+				try:
+					import json as _json
+					from datetime import datetime as _dt
+					payload = {
+						"sessionId": "debug-session",
+						"runId": "run1",
+						"hypothesisId": "H3",
+						"location": "conversationInterface.py:provideInitialResponse",
+						"message": "LLM responded",
+						"data": {"response_len": len(response.choices[0].message.content or "")},
+						"timestamp": int(_dt.now().timestamp() * 1000),
+					}
+					with open(
+						"/Users/nikitashilenok/Documents/vibecoding projects/qvantify-fullstack/.cursor/debug.log",
+						"a",
+						encoding="utf-8",
+					) as f:
+						f.write(_json.dumps(payload) + "\n")
+				except Exception:
+					pass
+				# endregion agent log
+				return response.choices[0].message.content
 
-				if promptType == "prompt" or promptType == "auto":
-					logger.debug('Initial Response (prompt or auto): %s', getattr(g, 'topicIsChanging', None))
-					history = []
-					self.DB.store_message("system", system_prompt)
-					history.append({"role": "system", "content": system_prompt})
-					# region agent log
-					try:
-						import json as _json
-						from datetime import datetime as _dt
-						payload = {
-							"sessionId": "debug-session",
-							"runId": "run1",
-							"hypothesisId": "H3",
-							"location": "conversationInterface.py:provideInitialResponse",
-							"message": "calling LLM for initial response",
-							"data": {"history_len": len(history)},
-							"timestamp": int(_dt.now().timestamp() * 1000),
-						}
-						with open(
-							"/Users/nikitashilenok/Documents/vibecoding projects/qvantify-fullstack/.cursor/debug.log",
-							"a",
-							encoding="utf-8",
-						) as f:
-							f.write(_json.dumps(payload) + "\n")
-					except Exception:
-						pass
-					# endregion agent log
-					response = chatGPT.getResponse(history)
-					self.DB.store_message("assistant",response.choices[0].message.content)
-					# region agent log
-					try:
-						import json as _json
-						from datetime import datetime as _dt
-						payload = {
-							"sessionId": "debug-session",
-							"runId": "run1",
-							"hypothesisId": "H3",
-							"location": "conversationInterface.py:provideInitialResponse",
-							"message": "LLM responded",
-							"data": {"response_len": len(response.choices[0].message.content or "")},
-							"timestamp": int(_dt.now().timestamp() * 1000),
-						}
-						with open(
-							"/Users/nikitashilenok/Documents/vibecoding projects/qvantify-fullstack/.cursor/debug.log",
-							"a",
-							encoding="utf-8",
-						) as f:
-							f.write(_json.dumps(payload) + "\n")
-					except Exception:
-						pass
-					# endregion agent log
-					return response.choices[0].message.content
-
-				elif promptType == "single_question":
-					logger.debug('Initial Response (single question): %s', getattr(g, 'topicIsChanging', None))
-					self.DB.store_message("assistant", self.retrieveTopic())
-					return self.retrieveTopic()
+			elif promptType == "single_question":
+				logger.debug('Initial Response (single question): %s', getattr(g, 'topicIsChanging', None))
+				self.DB.store_message("assistant", self.retrieveTopic())
+				return self.retrieveTopic()
 
 			else:
 				logger.debug('===Retrieving history:===')

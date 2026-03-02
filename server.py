@@ -30,10 +30,28 @@ from topic import topicHandler
 from conversationInterface import conversation
 import autoTopic
 import platform
+import subprocess
 
 if platform.system() == 'Linux':
     from heartbeat import heartbeat
 from drawscape_factorio import DrawscapeFactorio
+
+def _resolve_app_version():
+    sha = os.environ.get("RAILWAY_GIT_COMMIT_SHA", "").strip()
+    if sha:
+        return sha[:7]
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return "dev"
+
+APP_VERSION = _resolve_app_version()
 
 # Create Flask app for backend API only
 app = Flask(__name__)
@@ -682,7 +700,7 @@ def health():
         db_configured = False
         db_config_error = str(e)
 
-    return jsonify(ok=True, db_required=_requires_db(), db_configured=db_configured, db_config_error=db_config_error), 200
+    return jsonify(ok=True, version=APP_VERSION, db_required=_requires_db(), db_configured=db_configured, db_config_error=db_config_error), 200
 
 # Backend API routes (with /api prefix)
 @app.route('/api/respondent/', methods=['POST'])
@@ -739,6 +757,40 @@ def get_project():
     else:
         return jsonify({"error": "Project not found"}), 404
 
+def _build_reply_debug(chat):
+    """Return debug metadata dict for local dev, or None in production (Linux)."""
+    if platform.system() == 'Linux':
+        return None
+    try:
+        topic_meta = chat._get_topic_meta(g.topic)
+        ext_row = g.db.query_database_one(
+            "SELECT external_id FROM respondents WHERE id=%s", (g.uuid,)
+        )
+        external_id = ext_row[0] if ext_row else None
+        try:
+            proj_row = g.db.query_database_one(
+                "SELECT model, reasoning_effort FROM projects WHERE id=%s",
+                (g.projectId,),
+            )
+            model = proj_row[0] if proj_row else None
+            reasoning_effort = proj_row[1] if proj_row else None
+        except Exception:
+            model = None
+            reasoning_effort = None
+        developer_prompt = chat.retrieveTopic() + '\n \n' + chat.getDefaultPrompt()
+        return {
+            "model": model,
+            "reasoning_effort": reasoning_effort,
+            "topic_title": topic_meta.get("title") if topic_meta else None,
+            "user_id": g.uuid,
+            "external_id": external_id,
+            "developer_prompt": developer_prompt,
+        }
+    except Exception:
+        logger.exception("_build_reply_debug failed")
+        return None
+
+
 @app.route('/api/reply/', methods=['POST'])
 def gpt_response():
     try:
@@ -776,7 +828,11 @@ def gpt_response():
                     _analyze_and_store(g.projectId, g.uuid)
                 except Exception:
                     logger.exception("Auto-analysis failed for %s/%s", g.projectId, g.uuid)
-            return jsonify(response=response, status=status, answers=answers, progress=progress)
+            resp = dict(response=response, status=status, answers=answers, progress=progress, version=APP_VERSION)
+            debug = _build_reply_debug(chat)
+            if debug:
+                resp["_debug"] = debug
+            return jsonify(resp)
 
         # Streaming response (SSE over fetch POST)
         def sse(data: str) -> str:
@@ -784,22 +840,29 @@ def gpt_response():
 
         def generate():
             prompt_type = g.th.getTopicType(g.topic)
+
+            def _final_event(response_text, status, answers, progress):
+                payload = {
+                    "type": "final",
+                    "response": response_text,
+                    "status": status,
+                    "answers": answers,
+                    "progress": progress,
+                    "version": APP_VERSION,
+                }
+                debug = _build_reply_debug(chat)
+                if debug:
+                    payload["_debug"] = debug
+                return sse(json.dumps(payload))
+
+            # Emit an immediate SSE comment so proxy layers don't timeout waiting for first bytes.
+            yield ":\n\n"
             if prompt_type not in ("prompt", "auto"):
                 # For single_question etc, we just return the next assistant message as a single event.
                 response_text = chat.provideResponse(user_response)
                 final_status = chat.retrieveTopicStatus()
                 progress = g.th.getTopicProgress() if hasattr(g, "th") else {"current": 0, "total": 0, "ratio": 0}
-                yield sse(
-                    json.dumps(
-                        {
-                            "type": "final",
-                            "response": response_text,
-                            "status": final_status,
-                            "answers": chat.retrieveDefinedAnswers(),
-                            "progress": progress,
-                        }
-                    )
-                )
+                yield _final_event(response_text, final_status, chat.retrieveDefinedAnswers(), progress)
                 if final_status == "closed" and _analysis_needed(g.projectId, g.uuid):
                     try:
                         _analyze_and_store(g.projectId, g.uuid)
@@ -818,6 +881,61 @@ def gpt_response():
             messages = chat.buildModelMessages()
             llm = LLM()
             tools = autoTopic.function if prompt_type == "auto" else None
+
+            if prompt_type == "auto":
+                # gpt-5 + tools streaming can stall before first bytes; use non-stream for reliability.
+                response = llm.getResponse(messages, tools=tools)
+                assistant_msg = response.choices[0].message
+                full = assistant_msg.content or ""
+                tool_call_names = []
+                tool_calls = getattr(assistant_msg, "tool_calls", None) or []
+                for tc in tool_calls:
+                    fn = None
+                    function_obj = getattr(tc, "function", None)
+                    if function_obj is not None:
+                        fn = getattr(function_obj, "name", None)
+                    if not fn and isinstance(tc, dict):
+                        fn = (tc.get("function") or {}).get("name")
+                    if fn:
+                        tool_call_names.append(fn)
+
+                if tool_call_names:
+                    # Build a minimal response-like object compatible with autoTopic.switchTopic()
+                    class _Fn:  # noqa: N801
+                        def __init__(self, name): self.name = name
+                    class _ToolCall:  # noqa: N801
+                        def __init__(self, name): self.function = _Fn(name)
+                    class _Msg:  # noqa: N801
+                        def __init__(self, tool_calls): self.tool_calls = tool_calls
+                    class _Choice:  # noqa: N801
+                        def __init__(self, msg): self.message = msg
+                    class _Resp:  # noqa: N801
+                        def __init__(self, choices): self.choices = choices
+
+                    fake = _Resp([_Choice(_Msg([_ToolCall(tool_call_names[0])]))])
+                    switched = autoTopic.switchTopic(fake)
+                    if switched:
+                        next_text = chat.provideInitialResponse()
+                        final_status = chat.retrieveTopicStatus()
+                        progress = g.th.getTopicProgress() if hasattr(g, "th") else {"current": 0, "total": 0, "ratio": 0}
+                        yield _final_event(next_text, final_status, chat.retrieveDefinedAnswers(), progress)
+                        if final_status == "closed" and _analysis_needed(g.projectId, g.uuid):
+                            try:
+                                _analyze_and_store(g.projectId, g.uuid)
+                            except Exception:
+                                logger.exception("Auto-analysis failed for %s/%s", g.projectId, g.uuid)
+                        return
+
+                chat.DB.store_message("assistant", full)
+                final_status = chat.retrieveTopicStatus()
+                progress = g.th.getTopicProgress() if hasattr(g, "th") else {"current": 0, "total": 0, "ratio": 0}
+                yield _final_event(full, final_status, chat.retrieveDefinedAnswers(), progress)
+                if final_status == "closed" and _analysis_needed(g.projectId, g.uuid):
+                    try:
+                        _analyze_and_store(g.projectId, g.uuid)
+                    except Exception:
+                        logger.exception("Auto-analysis failed for %s/%s", g.projectId, g.uuid)
+                return
 
             full = ""
             tool_call_names = []
@@ -854,21 +972,10 @@ def gpt_response():
                 fake = _Resp([_Choice(_Msg([_ToolCall(tool_call_names[0])]))])
                 switched = autoTopic.switchTopic(fake)
                 if switched:
-                    # Provide initial response for the next topic
                     next_text = chat.provideInitialResponse()
                     final_status = chat.retrieveTopicStatus()
                     progress = g.th.getTopicProgress() if hasattr(g, "th") else {"current": 0, "total": 0, "ratio": 0}
-                    yield sse(
-                        json.dumps(
-                            {
-                                "type": "final",
-                                "response": next_text,
-                                "status": final_status,
-                                "answers": chat.retrieveDefinedAnswers(),
-                                "progress": progress,
-                            }
-                        )
-                    )
+                    yield _final_event(next_text, final_status, chat.retrieveDefinedAnswers(), progress)
                     if final_status == "closed" and _analysis_needed(g.projectId, g.uuid):
                         try:
                             _analyze_and_store(g.projectId, g.uuid)
@@ -877,17 +984,7 @@ def gpt_response():
                     return
             final_status = chat.retrieveTopicStatus()
             progress = g.th.getTopicProgress() if hasattr(g, "th") else {"current": 0, "total": 0, "ratio": 0}
-            yield sse(
-                json.dumps(
-                    {
-                        "type": "final",
-                        "response": full,
-                        "status": final_status,
-                        "answers": chat.retrieveDefinedAnswers(),
-                        "progress": progress,
-                    }
-                )
-            )
+            yield _final_event(full, final_status, chat.retrieveDefinedAnswers(), progress)
             if final_status == "closed" and _analysis_needed(g.projectId, g.uuid):
                 try:
                     _analyze_and_store(g.projectId, g.uuid)
@@ -979,39 +1076,20 @@ def initialize_interview():
             except Exception:
                 pass
             # --- end debug log ---
-            return jsonify(response=response_text, status=status, answers=answers, progress=progress)
+            resp = dict(response=response_text, status=status, answers=answers, progress=progress, version=APP_VERSION)
+            debug = _build_reply_debug(chat)
+            if debug:
+                resp["_debug"] = debug
+            return jsonify(resp)
         response_text = chat.provideInitialResponse()
         status = chat.retrieveTopicStatus()
         answers = chat.retrieveDefinedAnswers()
         progress = g.th.getTopicProgress() if hasattr(g, "th") else {"current": 0, "total": 0, "ratio": 0}
-        # --- debug log ---
-        try:
-            import json as _json
-            from datetime import datetime as _dt
-            payload = {
-                "sessionId": "debug-session",
-                "runId": "run1",
-                "hypothesisId": "H3",
-                "location": "server.py:initialize_interview",
-                "message": "initialize_interview response",
-                "data": {
-                    "status": status,
-                    "response_len": len(str(response_text or "")),
-                    "answers_len": len(answers or []),
-                    "progress": progress,
-                },
-                "timestamp": int(_dt.now().timestamp() * 1000),
-            }
-            with open(
-                "/Users/nikitashilenok/Documents/vibecoding projects/qvantify-fullstack/.cursor/debug.log",
-                "a",
-                encoding="utf-8",
-            ) as f:
-                f.write(_json.dumps(payload) + "\n")
-        except Exception:
-            pass
-        # --- end debug log ---
-        return jsonify(response=response_text, status=status, answers=answers, progress=progress)
+        resp = dict(response=response_text, status=status, answers=answers, progress=progress, version=APP_VERSION)
+        debug = _build_reply_debug(chat)
+        if debug:
+            resp["_debug"] = debug
+        return jsonify(resp)
     except Exception as e:
         logger.exception('Error in initialize_interview: %s', str(e))
         # --- debug log ---
@@ -1201,6 +1279,7 @@ def admin_get_project(project_id):
         "inline_consent",
         "voice_enabled",
         "model",
+        "reasoning_effort",
         "temperature",
         "max_tokens",
         "top_p",
@@ -1208,20 +1287,42 @@ def admin_get_project(project_id):
         "default_prompt",
     ]
     row = None
-    try:
-        row = g.db.query_database_one(f"SELECT {', '.join(fields)} FROM projects WHERE id=%s LIMIT 1", (project_id,))
-    except Exception as e:
-        logger.warning("Project config missing max_tokens; falling back to max_completion_tokens: %s", str(e))
-        select_fields = [
-            "max_completion_tokens AS max_tokens" if field == "max_tokens" else field for field in fields
-        ]
-        row = g.db.query_database_one(
-            f"SELECT {', '.join(select_fields)} FROM projects WHERE id=%s LIMIT 1",
-            (project_id,),
-        )
+    selected_fields = fields
+    legacy_fields = [field for field in fields if field != "reasoning_effort"]
+    query_attempts = [
+        (fields, fields, None),
+        (
+            ["max_completion_tokens AS max_tokens" if field == "max_tokens" else field for field in fields],
+            fields,
+            "Project config missing max_tokens; falling back to max_completion_tokens: %s",
+        ),
+        (
+            legacy_fields,
+            legacy_fields,
+            "Project config missing reasoning_effort; falling back to legacy columns: %s",
+        ),
+        (
+            ["max_completion_tokens AS max_tokens" if field == "max_tokens" else field for field in legacy_fields],
+            legacy_fields,
+            "Project config missing max_tokens and reasoning_effort; falling back to max_completion_tokens legacy columns: %s",
+        ),
+    ]
+    for query_fields, data_fields, warning in query_attempts:
+        try:
+            row = g.db.query_database_one(
+                f"SELECT {', '.join(query_fields)} FROM projects WHERE id=%s LIMIT 1",
+                (project_id,),
+            )
+            selected_fields = data_fields
+            break
+        except Exception as exc:
+            if warning:
+                logger.warning(warning, str(exc))
     if not row:
         return _json_error("Project not found", 404)
-    project = {field: value for field, value in zip(fields, row)}
+    project = {field: value for field, value in zip(selected_fields, row)}
+    if "reasoning_effort" not in project:
+        project["reasoning_effort"] = None
     return jsonify({"project": project})
 
 
@@ -1815,25 +1916,58 @@ def admin_get_session(project_id, respondent_id):
         records_out.append(record)
 
     proj_row = None
-    try:
-        q_proj = "SELECT id, name, model, temperature, max_tokens, top_p, api, default_prompt FROM projects WHERE id=%s LIMIT 1"
-        proj_row = g.db.query_database_one(q_proj, (project_id,))
-    except Exception as e:
-        logger.warning("Project config missing max_tokens; falling back to max_completion_tokens: %s", str(e))
-        q_proj = "SELECT id, name, model, temperature, max_completion_tokens, top_p, api, default_prompt FROM projects WHERE id=%s LIMIT 1"
-        proj_row = g.db.query_database_one(q_proj, (project_id,))
+    project_fields = [
+        "id",
+        "name",
+        "model",
+        "reasoning_effort",
+        "temperature",
+        "max_tokens",
+        "top_p",
+        "api",
+        "default_prompt",
+    ]
+    selected_project_fields = project_fields
+    legacy_project_fields = [field for field in project_fields if field != "reasoning_effort"]
+    project_query_attempts = [
+        (
+            project_fields,
+            project_fields,
+            None,
+        ),
+        (
+            ["max_completion_tokens AS max_tokens" if field == "max_tokens" else field for field in project_fields],
+            project_fields,
+            "Project config missing max_tokens; falling back to max_completion_tokens: %s",
+        ),
+        (
+            legacy_project_fields,
+            legacy_project_fields,
+            "Project config missing reasoning_effort; falling back to legacy columns: %s",
+        ),
+        (
+            [
+                "max_completion_tokens AS max_tokens" if field == "max_tokens" else field
+                for field in legacy_project_fields
+            ],
+            legacy_project_fields,
+            "Project config missing max_tokens and reasoning_effort; falling back to max_completion_tokens legacy columns: %s",
+        ),
+    ]
+    for query_fields, data_fields, warning in project_query_attempts:
+        try:
+            q_proj = f"SELECT {', '.join(query_fields)} FROM projects WHERE id=%s LIMIT 1"
+            proj_row = g.db.query_database_one(q_proj, (project_id,))
+            selected_project_fields = data_fields
+            break
+        except Exception as exc:
+            if warning:
+                logger.warning(warning, str(exc))
     project_out = None
     if proj_row:
-        project_out = {
-            "id": proj_row[0],
-            "name": proj_row[1],
-            "model": proj_row[2],
-            "temperature": proj_row[3],
-            "max_tokens": proj_row[4],
-            "top_p": proj_row[5],
-            "api": proj_row[6],
-            "default_prompt": proj_row[7],
-        }
+        project_out = {field: value for field, value in zip(selected_project_fields, proj_row)}
+        if "reasoning_effort" not in project_out:
+            project_out["reasoning_effort"] = None
 
     return jsonify(
         {

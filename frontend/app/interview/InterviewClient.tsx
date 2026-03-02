@@ -3,7 +3,7 @@
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { createRespondent, initInterview } from "@/lib/api";
-import type { Message, ProgressState } from "@/lib/types";
+import type { DebugInfo, Message, ProgressState } from "@/lib/types";
 import { useProject } from "@/hooks/useProject";
 import WelcomeScreen from "@/components/interview/WelcomeScreen";
 import InputArea from "@/components/interview/InputArea";
@@ -11,6 +11,19 @@ import ProgressBar from "@/components/interview/ProgressBar";
 import SuccessScreen from "@/components/interview/SuccessScreen";
 
 type Phase = "loading" | "welcome" | "conversation" | "success" | "error";
+
+function logDebug(label: string, debug: DebugInfo | undefined) {
+  if (!debug) return;
+  if (typeof window !== "undefined" && window.location.hostname !== "localhost"
+      && window.location.hostname !== "127.0.0.1") return;
+  console.log(
+    `%c[qvantify debug] ${label}`,
+    "color:#684EAD;font-weight:bold",
+    debug,
+  );
+}
+
+const FE_VERSION = process.env.NEXT_PUBLIC_BUILD_SHA || "dev";
 
 const createMessage = (role: "assistant" | "user", content: string): Message => ({
   id: `${role}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -30,6 +43,7 @@ export default function InterviewClient() {
 
   const { project, loading: projectLoading, error: projectError } = useProject(projectId);
   const [phase, setPhase] = useState<Phase>("loading");
+  const beVersionLogged = useRef(false);
   const [uuid, setUuid] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [progress, setProgress] = useState<ProgressState | null>(null);
@@ -73,6 +87,16 @@ export default function InterviewClient() {
   const isInputDisabled = isSending || !displayPrompt;
   const hasStartedRef = useRef(false);
   const resumeUuidRef = useRef<string | null>(null);
+
+  const logBeVersion = useCallback((version: string | undefined) => {
+    if (beVersionLogged.current || !version) return;
+    beVersionLogged.current = true;
+    console.log(`[qvantify] FE: ${FE_VERSION} | BE: ${version}`);
+  }, []);
+
+  useEffect(() => {
+    console.log(`[qvantify] FE: ${FE_VERSION}`);
+  }, []);
 
   useEffect(() => {
     resumeUuidRef.current = resumeUuid;
@@ -168,6 +192,8 @@ export default function InterviewClient() {
         const runInterview = async (activeUuid: string) => {
           setUuid(activeUuid);
           const initial = await initInterview({ projectId, uuid: activeUuid });
+          logBeVersion(initial.version);
+          logDebug("initInterview", initial._debug);
           setMessages([createMessage("assistant", initial.response)]);
           setProgress(initial.progress || null);
           if (initial.status === "closed") {
@@ -206,6 +232,8 @@ export default function InterviewClient() {
             setResumeUuid(respondent.uuid);
             persistSession(respondent.uuid);
             const initial = await initInterview({ projectId, uuid: respondent.uuid });
+            logBeVersion(initial.version);
+            logDebug("initInterview (retry)", initial._debug);
             setMessages([createMessage("assistant", initial.response)]);
             setProgress(initial.progress || null);
             if (initial.status === "closed") {
@@ -229,7 +257,7 @@ export default function InterviewClient() {
         setIsStarting(false);
       }
     },
-    [clearSession, persistSession, projectId, sessionReady]
+    [clearSession, logBeVersion, persistSession, projectId, sessionReady]
   );
 
   const handleSend = useCallback(
@@ -264,6 +292,8 @@ export default function InterviewClient() {
         const contentType = response.headers.get("content-type") || "";
         if (!contentType.includes("text/event-stream") || !response.body) {
           const payload = await response.json();
+          logBeVersion(payload.version);
+          logDebug("reply (non-stream)", payload._debug);
           setMessages((prev) => [...prev, createMessage("assistant", payload.response)]);
           setProgress(payload.progress || null);
           if (payload.status === "closed") {
@@ -305,7 +335,7 @@ export default function InterviewClient() {
             if (!dataLine) continue;
             const raw = dataLine.replace(/^data:\s*/, "");
             if (!raw) continue;
-            let payload: { type?: string; delta?: string; response?: string; status?: string; progress?: ProgressState };
+            let payload: { type?: string; delta?: string; response?: string; status?: string; progress?: ProgressState; version?: string; _debug?: DebugInfo };
             try {
               payload = JSON.parse(raw);
             } catch {
@@ -321,6 +351,8 @@ export default function InterviewClient() {
             }
             if (payload.type === "final") {
               markStarted();
+              logBeVersion(payload.version);
+              logDebug("reply (stream)", payload._debug);
               finalPayload = payload;
               if (typeof payload.response === "string") {
                 full = payload.response;

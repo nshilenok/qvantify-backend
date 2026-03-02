@@ -656,6 +656,7 @@ export function AdminProjectPage() {
       { key: "inline_consent", label: "Inline consent", value: projectDetails.inline_consent, type: "boolean" },
       { key: "voice_enabled", label: "Voice input", value: projectDetails.voice_enabled, type: "boolean" },
       { key: "model", label: "Model", value: projectDetails.model },
+      { key: "reasoning_effort", label: "Reasoning effort", value: projectDetails.reasoning_effort },
       { key: "temperature", label: "Temperature", value: projectDetails.temperature },
       { key: "top_p", label: "Top p", value: projectDetails.top_p },
       { key: "api", label: "API", value: projectDetails.api },
@@ -1182,6 +1183,8 @@ export function AdminProjectPage() {
             {projectDetails && (
               <p className="mt-1 text-xs text-[var(--text-muted)]">
                 Model: <span className="font-semibold text-[var(--text-secondary)]">{formatValue(projectDetails.model)}</span>
+                {" · "}
+                Reasoning: <span className="font-semibold text-[var(--text-secondary)]">{formatValue(projectDetails.reasoning_effort)}</span>
                 {" · "}
                 API: <span className="font-semibold text-[var(--text-secondary)]">{formatValue(projectDetails.api)}</span>
               </p>
