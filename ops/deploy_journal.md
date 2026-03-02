@@ -470,3 +470,25 @@ project_delete:
 
 ### Status: STAGING GREEN — awaiting user live validation before production promotion
 
+---
+
+## 2026-03-02 Production Promotion — reasoning_effort + version tracing
+
+**Promoted commit:** `f725e85` (staging → production)
+**Timestamp:** 2026-03-02 ~12:48 CET
+
+### Promotion steps
+1. Release safety check: passed (main_ahead=0, staging_ahead=1)
+2. Promotion dry run: confirmed source deploy `gli6erucs`
+3. `promote_frontend_from_staging.py --apply` → `app.qvantify.com` → `qvantify-frontend-r2l4yjfxs-nikita-shilenoks-projects.vercel.app`
+4. `git push origin staging:main` → Railway production auto-deploy triggered
+5. Railway production deployed version `f725e85` (confirmed via `/api/health`)
+
+### Verification
+- Domain aliases: verified (production → r2l4yjfxs, staging → gli6erucs)
+- `/api/health` → 200, `x-qvantify-proxy-base: https://qvantify.up.railway.app`, version=`f725e85`
+- Browser-use: production interview page loads, 200, "Loading interview..." shell renders correctly
+- No errors
+
+### Status: PRODUCTION GREEN
+
