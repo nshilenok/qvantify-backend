@@ -434,3 +434,39 @@ project_delete:
   share_login_attempts=0
 ```
 
+---
+
+## 2026-03-02 Staging Deploy — reasoning_effort + version tracing
+
+**Commit:** `04fff63` on `staging`
+**Timestamp:** 2026-03-02 ~12:33 CET
+
+### Changes deployed
+- Backend: `reasoning_effort` column support in LLM config + admin APIs with graceful DB fallback
+- Backend: `APP_VERSION` in responses, `_build_reply_debug` helper, refactored streaming (`_final_event`)
+- Backend: Strict `autoTopic` function schema, simplified `provideInitialResponse` flow
+- Frontend: FE/BE version logging to console, `DebugInfo` type, `NEXT_PUBLIC_BUILD_SHA` from git
+- Frontend: `reasoning_effort` in admin project page
+- Tests: streaming regressions, auto-topic schema, debug leak prevention, LLM reasoning config, version exposure
+
+### Preflight
+- Import check: pass
+- Branch safety: pass (main_ahead=0, staging_ahead=0)
+- API tests: 31/31 pass
+- Playwright: skipped (missing browser binary — local env issue, not code)
+
+### Deploy steps
+1. Committed all changes on `staging` branch
+2. Pushed to `origin/staging` → Railway auto-deploy triggered
+3. Created rollback checkpoint: `checkpoint/staging-reasoning-effort-v1`
+4. Amended commit author to `nshilenok@gmail.com` (Vercel team access requirement) + force-pushed
+5. `vercel deploy --cwd frontend --target=preview` → `qvantify-frontend-gli6erucs-nikita-shilenoks-projects.vercel.app`
+6. `vercel alias set` → `staging.app.qvantify.com`
+
+### Verification
+- Domain aliases: verified (staging → gli6erucs, production → ibzf8jobc)
+- `/api/health` → 200, `x-qvantify-proxy-base: https://qvantify-staging.up.railway.app`, version=`04fff63`
+- `/interview?interview=swipking2&external_id=staging_smoke_probe` → 200
+
+### Status: STAGING GREEN — awaiting user live validation before production promotion
+
