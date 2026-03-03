@@ -23,4 +23,11 @@ pytest
 echo "==> FE tests (Playwright)"
 npm run test:e2e
 
+echo "==> Interview smoke test (staging backend)"
+if curl -sf "https://qvantify-staging.up.railway.app/api/health" > /dev/null 2>&1; then
+  ./scripts/staging_smoke_test.sh https://qvantify-staging.up.railway.app
+else
+  echo "  ⚠️  Staging backend unreachable — skipping smoke test (run manually after deploy)"
+fi
+
 echo "✅ All local release checks passed."

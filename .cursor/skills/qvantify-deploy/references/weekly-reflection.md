@@ -42,6 +42,15 @@ Use this after each deploy cycle. Keep it short but explicit.
 - Skill/runbook updates:
 - Policy updates:
 
+### 5b) Promotion hygiene check
+
+- Were all bugs identified during the session fixed before promotion? `yes/no`
+- If no — why was promotion approved with known bugs?
+- Was the smoke test (`staging_smoke_test.sh`) run on staging before promotion? `yes/no`
+- Was the smoke test replayed on production after promotion? `yes/no`
+- Were any hotfixes pushed directly to main instead of rollback-first? `yes/no`
+- If yes — what prevented the rollback-first protocol from being followed?
+
 ### 6) Recurrence check (next week readiness)
 
 - Would this same failure recur next week? `yes/no`

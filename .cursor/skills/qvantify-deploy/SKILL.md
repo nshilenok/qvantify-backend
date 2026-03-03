@@ -32,6 +32,10 @@ Use this skill when:
 - Root `vercel.json` keeps `git.deploymentEnabled=false` to prevent wrong-context Git auto-preview takeovers.
 - Frontend deploys are manual and run from `frontend/` only.
 - Every staging/production attempt is logged append-only in `ops/deploy_journal.md`.
+- **Zero known bugs at promotion.** If any bug is identified during the session — even "pre-existing" — it must be fixed and tested before promotion to production. No exceptions.
+- **Rollback first, fix second.** If ANY production verification fails after promotion, immediately rollback (step 10). Never push hotfixes to main in a loop. Fix on staging, re-test the full smoke suite, then re-promote.
+- **Both code paths tested.** Every staging and production verification must test both non-streaming (`POST /api/reply/`) and streaming (`POST /api/reply/` with `stream:true` + `Accept: text/event-stream`). The automated smoke test (`scripts/staging_smoke_test.sh`) enforces this.
+- **Multi-user tested.** Every staging and production verification must run 2+ concurrent respondents against the same project to catch cross-user contamination. The automated smoke test enforces this.
 
 ## Known issues & workarounds
 
@@ -128,9 +132,17 @@ Expected:
 - `/api/health` → 200 with `x-qvantify-proxy-base: https://qvantify-staging.up.railway.app`.
 - `/interview?...` → 200 (plain curl works when SSO protection is disabled).
 
-### 5) Browser verification (mandatory)
+### 4b) Interview smoke test (MANDATORY — blocking gate)
 
-Always verify via a browser-use subagent after curl checks pass. This catches JS hydration failures, auth walls, and rendering issues that curl cannot detect:
+Runs 2 respondents per project, tests BOTH non-streaming and streaming code paths, checks for raw tool call text, premature close, and cross-user contamination:
+```bash
+./scripts/staging_smoke_test.sh https://qvantify-staging.up.railway.app
+```
+This tests `swipking2` (gpt-5.2) and Swipking3 (gpt-4.1). **Do NOT proceed to promotion if this fails.**
+
+### 5) Browser verification (supplementary)
+
+Optional after the smoke test passes. Useful for catching JS hydration failures, auth walls, and rendering issues that API tests cannot detect:
 
 ```
 Launch browser-use subagent → navigate to staging.app.qvantify.com/interview?interview=swipking2&external_id=staging_smoke_probe → screenshot → report what's visible.
@@ -192,16 +204,33 @@ Expected:
 
 Note: Railway production may take 30-60 seconds to deploy after push. If `version` field is missing from health response, wait and retry — old code didn't have the version field.
 
-Then browser verification:
+### 9b) Production smoke test (MANDATORY — rollback trigger)
+
+Replay the **exact same** smoke test against production:
+```bash
+./scripts/staging_smoke_test.sh https://qvantify.up.railway.app
+```
+**If this fails → immediately rollback (step 10). Do NOT push fixes to main.**
+
+### 9c) Browser verification (optional)
+
 ```
 Launch browser-use subagent → navigate to app.qvantify.com/interview?interview=swipking2&external_id=prod_smoke_probe → screenshot → report.
 ```
 
-### 10) Rollback command (one step)
+### 10) Rollback (use IMMEDIATELY if step 9b fails)
 
+Frontend rollback:
 ```bash
 python3.12 scripts/rollback_domains.py --snapshot "ops/checkpoints/checkpoint-<release-name>.json" --apply
 ```
+
+Backend rollback — push the previous good main commit:
+```bash
+git push origin <previous-main-sha>:main --force
+```
+
+After rollback, fix on staging, re-run full smoke test (`staging_smoke_test.sh`), then re-promote. **Never fix-forward on production.**
 
 ## Mandatory deploy incident logging
 
