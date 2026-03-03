@@ -101,6 +101,8 @@ class LLM():
 				config["max_completion_tokens"] = config.pop("max_tokens")
 			reasoning_effort = str(config.get("reasoning_effort", "") or "").strip()
 			config["reasoning_effort"] = reasoning_effort or "low"
+			config.pop("temperature", None)
+			config.pop("top_p", None)
 		else:
 			config.pop("reasoning_effort", None)
 		return config

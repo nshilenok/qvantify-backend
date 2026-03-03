@@ -58,6 +58,9 @@ If preflight Playwright fails with "port 4173 already in use", kill the stale pr
 lsof -ti :4173 | xargs kill -9 2>/dev/null
 ```
 
+### Git worktree blocks `git checkout main`
+The `main` branch is checked out in a git worktree, so `git checkout main && git merge staging` will fail. Use `git push origin staging:main` instead to update main remotely.
+
 ### SSO protection on staging
 Vercel SSO protection may block unauthenticated access to staging. If staging returns a login wall instead of the app, disable SSO via the Vercel API:
 ```bash
@@ -146,7 +149,9 @@ python3.12 scripts/verify_domain_aliases.py
 
 ### 7) Promotion readiness gate
 
+Commit any pending changes (skill updates, journal entries) first — safety check requires a clean tree:
 ```bash
+git add -A && git commit --author="nikitashilenok <nshilenok@gmail.com>" -m "<message>"
 python3.12 scripts/release_safety_check.py --repo-path . --allow-divergence
 python3.12 scripts/promote_frontend_from_staging.py
 ```
@@ -155,12 +160,44 @@ python3.12 scripts/promote_frontend_from_staging.py
 
 ### 8) Promote to production (only after user confirms staging is good)
 
+Frontend promotion:
 ```bash
 python3.12 scripts/promote_frontend_from_staging.py --apply
-python3.12 scripts/verify_domain_aliases.py
 ```
 
-### 9) Rollback command (one step)
+Backend promotion — push staging to main (Railway auto-deploys production from `main`):
+```bash
+git push origin staging:main
+```
+Note: if `main` is checked out in a git worktree, `git checkout main` will fail. Use `git push origin staging:main` to update main remotely without checking it out.
+
+Push staging too if there were new commits (journal/skill updates):
+```bash
+git push origin staging
+```
+
+### 9) Verify production
+
+Run in parallel:
+```bash
+python3.12 scripts/verify_domain_aliases.py
+curl -s "https://app.qvantify.com/api/health"
+curl -s -o /dev/null -w 'STATUS:%{http_code}\n' "https://app.qvantify.com/interview?interview=swipking2&external_id=prod_smoke_probe"
+```
+
+Expected:
+- Domain aliases: production → new deploy, staging → previous staging deploy.
+- `/api/health` → 200 with `x-qvantify-proxy-base: https://qvantify.up.railway.app` and `version` matching the promoted commit.
+- `/interview?...` → 200.
+
+Note: Railway production may take 30-60 seconds to deploy after push. If `version` field is missing from health response, wait and retry — old code didn't have the version field.
+
+Then browser verification:
+```
+Launch browser-use subagent → navigate to app.qvantify.com/interview?interview=swipking2&external_id=prod_smoke_probe → screenshot → report.
+```
+
+### 10) Rollback command (one step)
 
 ```bash
 python3.12 scripts/rollback_domains.py --snapshot "ops/checkpoints/checkpoint-<release-name>.json" --apply
