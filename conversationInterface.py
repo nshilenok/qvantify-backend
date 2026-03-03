@@ -267,7 +267,7 @@ class conversation():
 				tools = autoTopic.function if promptType == "auto" else None
 				response = chatGPT.getResponse(history, tools)
 				msg = response.choices[0].message
-				if getattr(msg, "tool_calls", None):
+				if getattr(msg, "tool_calls", None) or (msg.content and "interview_topic_over" in msg.content):
 					response = chatGPT.getResponse(history)
 					msg = response.choices[0].message
 				self.DB.store_message("assistant", msg.content)

@@ -899,6 +899,10 @@ def gpt_response():
                     if fn:
                         tool_call_names.append(fn)
 
+                if not tool_call_names and "interview_topic_over" in full:
+                    tool_call_names.append("interview_topic_over")
+                    logger.warning("Raw tool call text detected in content without proper tool_calls; treating as tool call")
+
                 if tool_call_names:
                     # Build a minimal response-like object compatible with autoTopic.switchTopic()
                     class _Fn:  # noqa: N801
@@ -954,6 +958,10 @@ def gpt_response():
 
             # Store assistant message
             chat.DB.store_message("assistant", full)
+
+            if prompt_type == "auto" and not tool_call_names and "interview_topic_over" in full:
+                tool_call_names.append("interview_topic_over")
+                logger.warning("Raw tool call text in streamed content without proper tool_calls; treating as tool call")
 
             # Auto topic: if model asked to switch topic, do it and emit the next prompt as final
             if prompt_type == "auto" and tool_call_names:
