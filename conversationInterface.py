@@ -264,10 +264,7 @@ class conversation():
 				except Exception:
 					pass
 				# endregion agent log
-				tools = autoTopic.function if promptType == "auto" else None
-				response = chatGPT.getResponse(history, tools)
-				if promptType == "auto" and autoTopic.switchTopic(response):
-					return self.provideInitialResponse()
+				response = chatGPT.getResponse(history)
 				self.DB.store_message("assistant",response.choices[0].message.content)
 				# region agent log
 				try:

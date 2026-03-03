@@ -207,9 +207,10 @@ class topicHandler():
 			self.changeLogEntryStatus()
 			self.makeNewTopicLogEntry(next_topic)
 			logger.debug('===Making new topic log entry (by auto-switch): %s for user: %s', next_topic, g.uuid )
+			self.topic = next_topic
 			g.topicIsChanging = True
 			g.topic = next_topic
 			return next_topic
 		else:
 			self.changeLogEntryStatus()
-			return g.topic
+			return None
