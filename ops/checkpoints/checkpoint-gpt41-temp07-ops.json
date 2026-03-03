@@ -1,0 +1,36 @@
+{
+  "created_at_utc": "2026-03-03T12:10:53.450916+00:00",
+  "checkpoint_name": "gpt41-temp07-ops",
+  "repository": "/Users/nikitashilenok/vibe projects 2026/projects/qvantify-fullstack",
+  "git": {
+    "current_branch": "staging",
+    "local_main_sha": "99442398b51a3e2078f08949592dd4d8b9ffb43b",
+    "local_staging_sha": "46c9c04cbee010046b2e3e375903240b6967359b",
+    "origin_main_sha": "c7754142b0165507a9c5aa8f77637adee18d0685",
+    "origin_staging_sha": "46c9c04cbee010046b2e3e375903240b6967359b"
+  },
+  "restore_tags": {
+    "main_tag": "checkpoint/main-gpt41-temp07-ops",
+    "staging_tag": "checkpoint/staging-gpt41-temp07-ops"
+  },
+  "vercel": {
+    "app_domain": {
+      "domain": "app.qvantify.com",
+      "deployment_id": "dpl_DbVpDtcg2mX1UMmUkvSAgxc4nBGY",
+      "deployment_url": "https://qvantify-frontend-qu1utp57h-nikita-shilenoks-projects.vercel.app",
+      "project_name": "qvantify-frontend",
+      "target": "production",
+      "ready_state": "READY",
+      "created_at": 1772526875634
+    },
+    "staging_domain": {
+      "domain": "staging.app.qvantify.com",
+      "deployment_id": "dpl_EZUnJeYSkdWWmpbKqMvuFSJiSd2v",
+      "deployment_url": "https://qvantify-frontend-4124em04h-nikita-shilenoks-projects.vercel.app",
+      "project_name": "qvantify-frontend",
+      "target": "preview",
+      "ready_state": "READY",
+      "created_at": 1772526272336
+    }
+  }
+}
