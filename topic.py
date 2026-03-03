@@ -157,8 +157,8 @@ class topicHandler():
 		g.db.query_database_insert(query,params)
 
 	def changeLogEntryStatus(self):
-		query = "UPDATE topics_log set status=0 where topic_id=%s"
-		params = (self.topic,)
+		query = "UPDATE topics_log set status=0 where topic_id=%s AND user_id=%s"
+		params = (self.topic, self.uuid)
 		result = g.db.query_database_insert(query,params)
 
 

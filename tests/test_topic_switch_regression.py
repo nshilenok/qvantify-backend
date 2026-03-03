@@ -457,3 +457,44 @@ def test_provide_response_auto_topic_switch_no_infinite_loop(app_ctx, monkeypatc
     assert _LLMChainStub.call_count <= 5, (
         f"Too many LLM calls ({_LLMChainStub.call_count}), possible loop"
     )
+
+
+# ---------------------------------------------------------------------------
+# 5. changeLogEntryStatus must scope to current user only
+# ---------------------------------------------------------------------------
+
+def test_change_log_entry_status_scoped_to_user(app_ctx):
+    """changeLogEntryStatus must only close the *current user's* topic entry,
+    not all users' entries for the same topic_id. The old query was:
+      UPDATE topics_log SET status=0 WHERE topic_id=%s
+    which closed every user's entry, causing cross-user contamination."""
+    topics_rows = [
+        ("t01", "CURRENT TOPIC: q1", 1),
+        ("t02", "CURRENT TOPIC: q2", 1),
+    ]
+    db = _DBStub(topics=topics_rows)
+
+    g.projectId = "test_proj"
+    g.uuid = "user-A"
+    g.db = db
+
+    th = topicHandler.__new__(topicHandler)
+    th.project = "test_proj"
+    th.uuid = "user-A"
+    th.DB = db
+    th.topics = [
+        (1, "t01", "CURRENT TOPIC: q1", 1),
+        (2, "t02", "CURRENT TOPIC: q2", 1),
+    ]
+    th.topic = "t01"
+
+    th.changeLogEntryStatus()
+
+    assert len(db.inserts) == 1
+    query, params = db.inserts[0]
+    assert "user_id" in query.lower(), (
+        "UPDATE query must include a user_id filter to avoid cross-user contamination"
+    )
+    assert params == ("t01", "user-A"), (
+        f"Params must include both topic_id and user_id, got {params}"
+    )
