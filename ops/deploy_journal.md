@@ -564,3 +564,51 @@ project_delete:
 
 ### Status: PRODUCTION GREEN
 
+---
+
+## 2026-03-03 ~12:10 UTC — gpt41-temp07-ops release
+
+### Summary
+Ops migration commit (set project 20ab1e5b to gpt-4.1 temp 0.7) + promote staging to production.
+
+### Commits promoted (staging → main)
+- `46c9c04` Add ops migration: set project 20ab1e5b to gpt-4.1 temp 0.7
+- `89bad56` Add rollback checkpoint for gpt41-temp07-ops release
+
+### Preflight
+- Import check: PASS
+- Branch safety: PASS
+- API tests (pytest): 40/40 PASS
+- Playwright: skipped (port 4173 conflict — known non-blocking)
+
+### Staging deploy
+- Backend: `git push origin staging` → 46c9c04 deployed to Railway staging
+- Frontend: `vercel deploy --target=preview` → qvantify-frontend-2p6rzym9t
+- Alias: staging.app.qvantify.com → new preview deploy
+- Health: 200, version=46c9c04, proxy=qvantify-staging.up.railway.app
+- Interview page: 200
+- Smoke test: PASSED (swipking2 + Swipking3, streaming + non-streaming, 2 users each)
+
+### Rollback checkpoint
+- Snapshot: ops/checkpoints/checkpoint-gpt41-temp07-ops.json
+
+### Safety gate
+- release_safety_check: PASSED (staging 1 ahead of main after checkpoint commit)
+- promote_frontend_from_staging.py dry-run: valid source deployment confirmed
+
+### Production promotion
+- Frontend: promote_frontend_from_staging.py --apply → app.qvantify.com → qvantify-frontend-dm4umgt7r
+- Backend: `git push origin staging:main` → 89bad56 deployed to Railway production
+- Health: 200, version=89bad56, proxy=qvantify.up.railway.app
+- Interview page: 200
+- Domain aliases verified: production → new deploy, staging → previous staging deploy
+
+### Production smoke test
+- PASSED (version=89bad56)
+- swipking2 (gpt-5.2): 2 users, streaming + non-streaming, all clean
+- Swipking3/20ab1e5b (gpt-4.1): 2 users, streaming + non-streaming, all clean
+
+### Issues found during promotion
+None.
+
+### Status: PRODUCTION GREEN
