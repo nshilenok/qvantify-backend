@@ -53,6 +53,14 @@ def _resolve_app_version():
 
 APP_VERSION = _resolve_app_version()
 
+_RAW_TOOL_CALL_RE = re.compile(r'interview_topic_over\s*\(\s*\{[^}]*\}\s*\)\s*', re.IGNORECASE)
+
+def _strip_raw_tool_text(text: str) -> str:
+    """Remove raw interview_topic_over(...) text that the model sometimes emits as content."""
+    if not text:
+        return text
+    return _RAW_TOOL_CALL_RE.sub("", text).strip()
+
 # Create Flask app for backend API only
 app = Flask(__name__)
 CORS(app)
@@ -919,7 +927,7 @@ def gpt_response():
                     fake = _Resp([_Choice(_Msg([_ToolCall(tool_call_names[0])]))])
                     switched = autoTopic.switchTopic(fake)
                     if switched:
-                        next_text = chat.provideInitialResponse()
+                        next_text = _strip_raw_tool_text(chat.provideInitialResponse())
                         final_status = chat.retrieveTopicStatus()
                         progress = g.th.getTopicProgress() if hasattr(g, "th") else {"current": 0, "total": 0, "ratio": 0}
                         yield _final_event(next_text, final_status, chat.retrieveDefinedAnswers(), progress)
@@ -930,6 +938,7 @@ def gpt_response():
                                 logger.exception("Auto-analysis failed for %s/%s", g.projectId, g.uuid)
                         return
 
+                full = _strip_raw_tool_text(full)
                 chat.DB.store_message("assistant", full)
                 final_status = chat.retrieveTopicStatus()
                 progress = g.th.getTopicProgress() if hasattr(g, "th") else {"current": 0, "total": 0, "ratio": 0}
@@ -980,7 +989,7 @@ def gpt_response():
                 fake = _Resp([_Choice(_Msg([_ToolCall(tool_call_names[0])]))])
                 switched = autoTopic.switchTopic(fake)
                 if switched:
-                    next_text = chat.provideInitialResponse()
+                    next_text = _strip_raw_tool_text(chat.provideInitialResponse())
                     final_status = chat.retrieveTopicStatus()
                     progress = g.th.getTopicProgress() if hasattr(g, "th") else {"current": 0, "total": 0, "ratio": 0}
                     yield _final_event(next_text, final_status, chat.retrieveDefinedAnswers(), progress)
@@ -990,6 +999,7 @@ def gpt_response():
                         except Exception:
                             logger.exception("Auto-analysis failed for %s/%s", g.projectId, g.uuid)
                     return
+            full = _strip_raw_tool_text(full)
             final_status = chat.retrieveTopicStatus()
             progress = g.th.getTopicProgress() if hasattr(g, "th") else {"current": 0, "total": 0, "ratio": 0}
             yield _final_event(full, final_status, chat.retrieveDefinedAnswers(), progress)
