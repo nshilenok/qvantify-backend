@@ -264,8 +264,13 @@ class conversation():
 				except Exception:
 					pass
 				# endregion agent log
-				response = chatGPT.getResponse(history)
-				self.DB.store_message("assistant",response.choices[0].message.content)
+				tools = autoTopic.function if promptType == "auto" else None
+				response = chatGPT.getResponse(history, tools)
+				msg = response.choices[0].message
+				if getattr(msg, "tool_calls", None):
+					response = chatGPT.getResponse(history)
+					msg = response.choices[0].message
+				self.DB.store_message("assistant", msg.content)
 				# region agent log
 				try:
 					import json as _json
@@ -276,7 +281,7 @@ class conversation():
 						"hypothesisId": "H3",
 						"location": "conversationInterface.py:provideInitialResponse",
 						"message": "LLM responded",
-						"data": {"response_len": len(response.choices[0].message.content or "")},
+						"data": {"response_len": len(msg.content or "")},
 						"timestamp": int(_dt.now().timestamp() * 1000),
 					}
 					with open(
@@ -288,7 +293,7 @@ class conversation():
 				except Exception:
 					pass
 				# endregion agent log
-				return response.choices[0].message.content
+				return msg.content
 
 			elif promptType == "single_question":
 				logger.debug('Initial Response (single question): %s', getattr(g, 'topicIsChanging', None))
