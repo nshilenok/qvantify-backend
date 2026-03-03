@@ -492,3 +492,36 @@ project_delete:
 
 ### Status: PRODUCTION GREEN
 
+---
+
+## 2026-03-03 — Staging deploy: swipking gpt-4.1 fix (e14e35f)
+
+### Commits included (staging-only, 3 ahead of main)
+- `1734567` Fix infinite loop in auto-topic switching with gpt-4.1
+- `007713b` Fix initial response showing raw tool call text
+- `2cd4f62` Add regression tests for auto-topic infinite loop (8 tests)
+- `e14e35f` Strip temperature/top_p for reasoning models; update deploy skill docs
+
+### Preflight
+- Import check: PASS
+- Branch safety: PASS (staging 3 ahead)
+- Pytest: 39/39 PASS
+- Playwright: SKIP (port 4173 conflict from local dev — non-blocking)
+
+### Backend (Railway)
+- `git push origin staging` → e14e35f deployed
+- Health: 200, version=e14e35f, proxy=qvantify-staging.up.railway.app
+
+### Frontend (Vercel)
+- Deploy: qvantify-frontend-4124em04h-nikita-shilenoks-projects.vercel.app
+- Alias: staging.app.qvantify.com → new deploy
+- Domain aliases verified (staging → 4124em04h, production → r2l4yjfxs)
+
+### Interview verification (all 3 swipking interviews)
+- **swipking2**: project OK, respondent created, initial question OK ("How often do you play?")
+- **swipking3_gpt41_test** (gpt-4.1): project OK, respondent created, initial question OK ("Have you ever tried to make a purchase in SweepKing?"), reply flow tested through 3 topic transitions — all clean text, no raw tool calls, no infinite loops
+- **20ab1e5b-54c4-4f03-8331-4f88132d3b51** (Swipking3): project OK, respondent created, initial question OK, browser test confirmed full interaction
+- Topic switch 1→2→3 verified on gpt-4.1 interview (the exact regression that was fixed)
+
+### Status: STAGING GREEN
+

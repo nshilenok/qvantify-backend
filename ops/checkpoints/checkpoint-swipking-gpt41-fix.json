@@ -1,0 +1,36 @@
+{
+  "created_at_utc": "2026-03-03T08:24:26.458207+00:00",
+  "checkpoint_name": "swipking-gpt41-fix",
+  "repository": "/Users/nikitashilenok/vibe projects 2026/projects/qvantify-fullstack",
+  "git": {
+    "current_branch": "staging",
+    "local_main_sha": "99442398b51a3e2078f08949592dd4d8b9ffb43b",
+    "local_staging_sha": "e14e35ff2c4ed0aae82020b9af698eba5dc840db",
+    "origin_main_sha": "cb7f28ec060912df43716b588325391ffbe93390",
+    "origin_staging_sha": "e14e35ff2c4ed0aae82020b9af698eba5dc840db"
+  },
+  "restore_tags": {
+    "main_tag": "checkpoint/main-swipking-gpt41-fix",
+    "staging_tag": "checkpoint/staging-swipking-gpt41-fix"
+  },
+  "vercel": {
+    "app_domain": {
+      "domain": "app.qvantify.com",
+      "deployment_id": "dpl_Hewij1M8yDdaD6643a597yoidTiZ",
+      "deployment_url": "https://qvantify-frontend-r2l4yjfxs-nikita-shilenoks-projects.vercel.app",
+      "project_name": "qvantify-frontend",
+      "target": "production",
+      "ready_state": "READY",
+      "created_at": 1772452034554
+    },
+    "staging_domain": {
+      "domain": "staging.app.qvantify.com",
+      "deployment_id": "dpl_9KiMtXoqpViJrr4MjtDCywZtP7PU",
+      "deployment_url": "https://qvantify-frontend-gli6erucs-nikita-shilenoks-projects.vercel.app",
+      "project_name": "qvantify-frontend",
+      "target": "preview",
+      "ready_state": "READY",
+      "created_at": 1772451408692
+    }
+  }
+}
