@@ -827,7 +827,7 @@ def gpt_response():
         chat = conversation(g.th)
 
         if not wants_stream:
-            response = chat.provideResponse(user_response)
+            response = _strip_raw_tool_text(chat.provideResponse(user_response))
             status = chat.retrieveTopicStatus()
             answers = chat.retrieveDefinedAnswers()
             progress = g.th.getTopicProgress() if hasattr(g, "th") else {"current": 0, "total": 0, "ratio": 0}

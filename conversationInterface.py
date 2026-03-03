@@ -177,22 +177,28 @@ class conversation():
 			elif promptType == "auto" and getattr(g, 'topicIsChanging', None) is not None:
 				self.DB.store_message("system",system_prompt)
 				response = chatGPT.getResponse(messages, autoTopic.function)
-				if autoTopic.switchTopic(response):
+				content = response.choices[0].message.content or ""
+				if autoTopic.switchTopic(response) or "interview_topic_over" in content:
+					if not autoTopic.switchTopic(response) and "interview_topic_over" in content:
+						autoTopic.forceSwitchFromText(g.th)
 					logger.debug('===auto topic attempt 1: %s', g.topic)
 					answer = self.provideInitialResponse()
 					return answer
-				self.DB.store_message("assistant",response.choices[0].message.content)
-				return response.choices[0].message.content
+				self.DB.store_message("assistant", content)
+				return content
 
 			elif promptType == "auto" and getattr(g, 'topicIsChanging', None) is None:
 				response = chatGPT.getResponse(messages, autoTopic.function)
-				if autoTopic.switchTopic(response):
+				content = response.choices[0].message.content or ""
+				if autoTopic.switchTopic(response) or "interview_topic_over" in content:
+					if not autoTopic.switchTopic(response) and "interview_topic_over" in content:
+						autoTopic.forceSwitchFromText(g.th)
 					logger.debug('===auto topic attempt 2: %s', g.topic)
 					answer = self.provideInitialResponse()
 					return answer
 				logger.debug('===Generating response (auto/none)===: %s', response)
-				self.DB.store_message("assistant", response.choices[0].message.content)
-				return response.choices[0].message.content
+				self.DB.store_message("assistant", content)
+				return content
 
 			elif promptType == "single_question" and getattr(g, 'topicIsChanging', None) is not None:
 				self.DB.store_message("assistant", self.retrieveTopic())

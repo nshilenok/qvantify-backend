@@ -31,3 +31,8 @@ def switchTopic(response):
 		function_to_call = available_functions[function_name]
 		function_response = function_to_call()
 		return function_response
+
+def forceSwitchFromText(th):
+	"""Trigger topic switch when the model emitted interview_topic_over as
+	plain text instead of a proper tool_call."""
+	return th.forceSwitchTopic()
