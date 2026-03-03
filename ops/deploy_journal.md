@@ -525,3 +525,42 @@ project_delete:
 
 ### Status: STAGING GREEN
 
+---
+
+## 2026-03-03 — Production promotion: swipking fixes (cbbe12d)
+
+### Commits promoted (staging → main)
+- `1734567` Fix infinite loop in auto-topic switching with gpt-4.1
+- `007713b` Fix initial response showing raw tool call text
+- `2cd4f62` Add regression tests for auto-topic infinite loop (8 tests)
+- `e14e35f` Strip temperature/top_p for reasoning models; update deploy skill docs
+- `aa2c779` Log staging deploy
+- `5a17a86` Fix changeLogEntryStatus cross-user contamination bug (missing user_id filter)
+- `5a9d314` Detect raw tool call text as fallback when model skips proper tool_calls
+- `73e16b0` Add regex sanitizer to strip raw interview_topic_over() text from responses
+- `cbbe12d` Fix raw tool call text leaking in non-streaming reply path
+
+### Safety gate
+- release_safety_check: PASSED (staging 4 ahead of main at initial check)
+- pytest: 40/40 PASS
+
+### Backend (Railway)
+- `git push origin staging:main` → cbbe12d deployed to production
+- Health: 200, version=cbbe12d, proxy=qvantify.up.railway.app
+
+### Frontend (Vercel)
+- Promoted via promote_frontend_from_staging.py --apply
+- app.qvantify.com → new deploy
+- Both domains: 200
+
+### Production verification
+- Full 7-step API-level interview flow on gpt-4.1 test project: all clean text responses, no raw tool calls, topic transitions 1→3→5→7→9 working correctly
+- Health: cbbe12d on both staging and production
+- Interview pages: 200 on both domains
+
+### Issues found during promotion
+1. Raw tool call text in non-streaming path: The /api/reply/ non-streaming path (when client doesn't request SSE) called provideResponse() directly, bypassing all tool-text sanitization in generate(). Fixed by adding _strip_raw_tool_text() wrapper and teaching provideResponse auto paths to detect raw tool text.
+2. changeLogEntryStatus cross-user contamination: The UPDATE query lacked a user_id filter, causing one user's topic completion to close that topic for ALL users in the same project. Fixed by adding AND user_id=%s.
+
+### Status: PRODUCTION GREEN
+
