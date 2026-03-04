@@ -612,3 +612,47 @@ Ops migration commit (set project 20ab1e5b to gpt-4.1 temp 0.7) + promote stagin
 None.
 
 ### Status: PRODUCTION GREEN
+
+---
+
+## 2026-03-04 — fix-t03-topic-stall
+
+### Summary
+Fix deterministic topic-switch stall on gpt-4.1 projects. Backend: removed tools from `provideInitialResponse()` so LLM can't call `interview_topic_over` when generating the first question of a new topic; added `_strip_raw_tool_text` safety net. Frontend: changed `??` to `||` for `displayPrompt` so empty-string streaming responses fall through to `currentPrompt` instead of showing permanent shimmer.
+
+### Commits
+- `46c7866` Fix topic-switch stall: remove tools from provideInitialResponse, fix empty-string shimmer
+- `536acdc` Add rollback checkpoint for fix-t03-topic-stall release
+
+### Staging deploy
+- Backend: `git push origin staging` → Railway auto-deploy (46c7866)
+- Frontend: `vercel deploy --target=preview` → qvantify-frontend-aytaxsn6w
+- Alias: staging.app.qvantify.com → new preview deploy
+- Health: 200, version=46c7866, proxy=qvantify-staging.up.railway.app
+- Interview page: 200
+- Domain aliases verified
+- Smoke test: PASSED (swipking2 + Swipking3, streaming + non-streaming, 2 users each)
+
+### Rollback checkpoint
+- Snapshot: ops/checkpoints/checkpoint-fix-t03-topic-stall.json
+
+### Safety gate
+- release_safety_check: PASSED (staging 1 ahead of main)
+- promote_frontend_from_staging.py: valid source deployment confirmed
+
+### Production promotion
+- Frontend: promote_frontend_from_staging.py --apply → app.qvantify.com → qvantify-frontend-o4juwdzvz
+- Backend: `git push origin staging:main` → 536acdc deployed to Railway production
+- Health: 200, version=536acdc, proxy=qvantify.up.railway.app
+- Interview page: 200
+- Domain aliases verified: production → new deploy, staging → previous staging deploy
+
+### Production smoke test
+- PASSED (version=536acdc)
+- swipking2 (gpt-5.2): 2 users, streaming + non-streaming, all clean
+- Swipking3/20ab1e5b (gpt-4.1): 2 users, streaming + non-streaming, all clean — topic transitions now work correctly
+
+### Issues found during promotion
+None.
+
+### Status: PRODUCTION GREEN
