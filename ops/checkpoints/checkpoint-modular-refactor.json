@@ -1,0 +1,36 @@
+{
+  "created_at_utc": "2026-03-04T20:51:55.911408+00:00",
+  "checkpoint_name": "modular-refactor",
+  "repository": "/Users/nikitashilenok/vibe projects 2026/projects/qvantify-fullstack",
+  "git": {
+    "current_branch": "staging",
+    "local_main_sha": "99442398b51a3e2078f08949592dd4d8b9ffb43b",
+    "local_staging_sha": "d1a2589c2743bf12358d058592a362fd90e88b78",
+    "origin_main_sha": "472b226330d21ece1b31dcf08f135610b3b8376c",
+    "origin_staging_sha": "472b226330d21ece1b31dcf08f135610b3b8376c"
+  },
+  "restore_tags": {
+    "main_tag": "checkpoint/main-modular-refactor",
+    "staging_tag": "checkpoint/staging-modular-refactor"
+  },
+  "vercel": {
+    "app_domain": {
+      "domain": "app.qvantify.com",
+      "deployment_id": "dpl_uNNTnz3Eo5yYKLdYyrHHyC83jFuz",
+      "deployment_url": "https://qvantify-frontend-o4juwdzvz-nikita-shilenoks-projects.vercel.app",
+      "project_name": "qvantify-frontend",
+      "target": "production",
+      "ready_state": "READY",
+      "created_at": 1772624050784
+    },
+    "staging_domain": {
+      "domain": "staging.app.qvantify.com",
+      "deployment_id": "dpl_3oiWtfYJ3vSErwDEzg9GkyMjXAD5",
+      "deployment_url": "https://qvantify-frontend-aytaxsn6w-nikita-shilenoks-projects.vercel.app",
+      "project_name": "qvantify-frontend",
+      "target": "preview",
+      "ready_state": "READY",
+      "created_at": 1772623885966
+    }
+  }
+}

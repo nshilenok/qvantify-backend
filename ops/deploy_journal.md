@@ -656,3 +656,46 @@ Fix deterministic topic-switch stall on gpt-4.1 projects. Backend: removed tools
 None.
 
 ### Status: PRODUCTION GREEN
+
+---
+
+## 2026-03-04 ~21:55 CET — modular-refactor release (566a2ce)
+
+### Summary
+Major refactoring: extracted monolithic server.py into interview/, admin/, share/ packages and config.py.
+Frontend: extracted shared FilterBar, SessionList, TranscriptView components; added Vitest tests.
+Removed legacy api/ JS stubs and app.py.
+
+### Preflight
+- Import check: PASSED
+- Branch safety: PASSED (0 divergence)
+- API tests: 85/85 PASSED
+- Playwright: SKIPPED (port 4173 conflict — known non-blocking)
+
+### Staging deploy
+- Backend: `git push origin staging` → 566a2ce deployed to Railway staging
+- Frontend: vercel deploy → qvantify-frontend-n0rnxkii5 aliased to staging.app.qvantify.com
+- Health: 200, version=566a2ce, db_configured=true
+- Interview page: 200
+- Domain aliases verified
+- Smoke test: PASSED (swipking2 + Swipking3, streaming + non-streaming, 2 users each)
+
+### Rollback checkpoint
+- Snapshot: ops/checkpoints/checkpoint-modular-refactor.json
+
+### Production promotion
+- Frontend: promote_frontend_from_staging.py --apply → app.qvantify.com → qvantify-frontend-c0nviiq16
+- Backend: `git push origin staging:main` → 566a2ce deployed to Railway production
+- Health: 200, version=566a2ce, db_configured=true
+- Interview page: 200
+- Domain aliases verified: production → new deploy, staging → previous staging deploy
+
+### Production smoke test
+- PASSED (version=566a2ce)
+- swipking2 (gpt-5.2): 2 users, streaming + non-streaming, all clean
+- Swipking3/20ab1e5b (gpt-4.1): 2 users, streaming + non-streaming, all clean
+
+### Issues found during promotion
+- Git author email (info@shhhp.ai) rejected by Vercel — fixed with --amend + force push (known workaround)
+
+### Status: PRODUCTION GREEN
