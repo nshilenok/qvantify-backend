@@ -1,4 +1,4 @@
-export interface ProjectConfig {
+export interface ProjectBase {
   name?: string | null;
   logo?: string | null;
   colour?: string | null;
@@ -27,6 +27,8 @@ export interface ProjectConfig {
   inline_consent?: boolean | null;
   voice_enabled?: boolean | null;
 }
+
+export interface ProjectConfig extends ProjectBase {}
 
 export interface ProgressState {
   current: number;

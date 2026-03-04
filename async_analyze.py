@@ -2,7 +2,6 @@ import json
 from llmInterface import LLM
 from database import DB
 import credentials
-import app
 import threading
 from nltk import tokenize
 import nltk
@@ -11,7 +10,7 @@ from label_prompt import labels
 
 nltk.download('punkt')
 
-db = DB(credentials.db_config)
+db = DB(credentials.get_db_config())
 
 def get_interview(uuid,project):
 	records = db.get_records(uuid,project)

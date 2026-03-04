@@ -11,9 +11,11 @@ logger = logging.getLogger(__name__)
 
 class LLM():
 	"""docstring for LLM"""
-	def __init__(self,db=None):
-		if g:
-			self.project =  g.projectId
+	def __init__(self, db=None, project_id=None):
+		if project_id is not None:
+			self.project = project_id
+		elif has_request_context() and hasattr(g, 'projectId'):
+			self.project = g.projectId
 		else:
 			self.project = None
 
@@ -22,10 +24,12 @@ class LLM():
 		else:
 			self.key = credentials.openaiapi_key
 
-		if db: #setting stuff here when app is working out of context and DB connection is shared
+		if db is not None:
 			self.DB = db
-		else:
+		elif has_request_context() and hasattr(g, 'db'):
 			self.DB = g.db
+		else:
+			self.DB = None
 		self.config = self.getConfig()
 		self.api = self.getApi()
 
@@ -148,28 +152,6 @@ class LLM():
 		prepared_messages = self._prepare_openai_messages(messages, config)
 		os.environ["OPENAI_API_KEY"] = self.key
 		client = OpenAI() 
-		# region agent log
-		try:
-			import json as _json
-			from datetime import datetime as _dt
-			payload = {
-				"sessionId": "debug-session",
-				"runId": "run1",
-				"hypothesisId": "H3",
-				"location": "llmInterface.py:getResponseOpenAI",
-				"message": "OpenAI request start",
-				"data": {"model": str(config.get("model", "")), "has_tools": bool(tools)},
-				"timestamp": int(_dt.now().timestamp() * 1000),
-			}
-			with open(
-				"/Users/nikitashilenok/Documents/vibecoding projects/qvantify-fullstack/.cursor/debug.log",
-				"a",
-				encoding="utf-8",
-			) as f:
-				f.write(_json.dumps(payload) + "\n")
-		except Exception:
-			pass
-		# endregion agent log
 		if tools:
 			if tool_choice:
 				response = client.chat.completions.create(**config,messages=prepared_messages,tools=tools,tool_choice=tool_choice)
@@ -177,28 +159,6 @@ class LLM():
 				response = client.chat.completions.create(**config,messages=prepared_messages,tools=tools)
 		else:
 			response = client.chat.completions.create(**config,messages=prepared_messages)
-		# region agent log
-		try:
-			import json as _json
-			from datetime import datetime as _dt
-			payload = {
-				"sessionId": "debug-session",
-				"runId": "run1",
-				"hypothesisId": "H3",
-				"location": "llmInterface.py:getResponseOpenAI",
-				"message": "OpenAI request done",
-				"data": {"has_response": response is not None},
-				"timestamp": int(_dt.now().timestamp() * 1000),
-			}
-			with open(
-				"/Users/nikitashilenok/Documents/vibecoding projects/qvantify-fullstack/.cursor/debug.log",
-				"a",
-				encoding="utf-8",
-			) as f:
-				f.write(_json.dumps(payload) + "\n")
-		except Exception:
-			pass
-		# endregion agent log
 		logger.debug('==========================OpenAI Output===========================: %s', response)
 		self.saveUsage(response)
 		client.close()
@@ -240,7 +200,8 @@ class LLM():
 			client.close()
 
 	def getResponse(self,messages,tools=None,tool_choice=None):
-		logger.info('USER %s SENDING THIS TO GPT: %s', getattr(g, "uuid", None), messages)
+		uid = getattr(g, "uuid", None) if has_request_context() else None
+		logger.info('USER %s SENDING THIS TO GPT: %s', uid, messages)
 		try:
 			if self.api == "openai":
 				return self.getResponseOpenAI(messages,tools,tool_choice)
@@ -263,23 +224,28 @@ class LLM():
 		response = client.embeddings.create(input=text, model="text-embedding-ada-002")
 		return response.data[0].embedding
 
-	def saveUsage(self, response):
+	def saveUsage(self, response, user_id=None, topic=None,
+				 purpose=None, service=None):
 		prompt_tokens = response.usage.prompt_tokens
 		completion_tokens = response.usage.completion_tokens
 		model = self.config['model']
 		api = self.api
-		if has_request_context():
+
+		if user_id is None and has_request_context():
 			user_id = getattr(g, "uuid", None)
-			project_id = getattr(g, "projectId", None) or self.project
+		if topic is None and has_request_context():
 			topic = getattr(g, "baseTopic", None)
-			purpose = getattr(g, "llm_purpose", "chat")
-			service = getattr(g, "llm_service", "core")
-		else:
-			user_id = None
-			project_id = self.project
-			topic = None
-			purpose = "analysis"
-			service = "batch"
+		if purpose is None:
+			if has_request_context():
+				purpose = getattr(g, "llm_purpose", "chat")
+			else:
+				purpose = "analysis"
+		if service is None:
+			if has_request_context():
+				service = getattr(g, "llm_service", "core")
+			else:
+				service = "batch"
+		project_id = self.project
 
 		query = "INSERT INTO usage_stats (prompt_tokens, completion_tokens, user_id, project, topic, api, model, purpose, service) values (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
 		params = (
@@ -296,7 +262,6 @@ class LLM():
 		try:
 			self.DB.query_database_insert(query, params)
 		except Exception:
-			# Usage tracking must never break primary functionality.
 			logger.exception("Failed to record usage_stats")
 
 

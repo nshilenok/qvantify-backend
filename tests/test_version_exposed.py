@@ -11,6 +11,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 import server as srv
+from config import _resolve_app_version
 
 
 def test_app_version_is_non_empty_string():
@@ -36,13 +37,13 @@ def test_health_endpoint_includes_version():
 
 def test_resolve_app_version_from_env(monkeypatch):
     monkeypatch.setenv("RAILWAY_GIT_COMMIT_SHA", "abc1234567890")
-    result = srv._resolve_app_version()
+    result = _resolve_app_version()
     assert result == "abc1234", "Should use first 7 chars of RAILWAY_GIT_COMMIT_SHA"
 
 
 def test_resolve_app_version_fallback_without_env(monkeypatch):
     monkeypatch.delenv("RAILWAY_GIT_COMMIT_SHA", raising=False)
-    result = srv._resolve_app_version()
+    result = _resolve_app_version()
     assert isinstance(result, str)
     assert len(result) > 0, "Should fall back to git SHA or 'dev'"
 

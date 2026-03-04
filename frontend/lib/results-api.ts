@@ -1,3 +1,5 @@
+import type { ProjectBase } from "./types";
+
 export type ApiError = { error: string; [k: string]: unknown };
 
 const configuredBase = (process.env.NEXT_PUBLIC_QVANTIFY_BASE_URL || "").replace(/\/$/, "");
@@ -88,36 +90,10 @@ export type SessionListItem = {
 
 export type AdminProjectsResponse = { projects: AdminProject[] };
 export type SessionsResponse = { total: number; sessions: SessionListItem[]; project?: { id: string } };
-export type AdminProjectDetail = {
+export type AdminProjectDetail = ProjectBase & {
   id: string;
   name: string | null;
-  logo?: string | null;
-  colour?: string | null;
-  welcome_title?: string | null;
-  welcome_message?: string | null;
-  success_title?: string | null;
-  success_message?: string | null;
-  abort_title?: string | null;
-  abort_message?: string | null;
-  welcome_second_title?: string | null;
-  welcome_second_message?: string | null;
-  consent?: string | null;
-  cta_next?: string | null;
-  cta_reply?: string | null;
-  cta_abort?: string | null;
-  cta_restart?: string | null;
-  question_title?: string | null;
-  answer_title?: string | null;
-  answer_placeholder?: string | null;
   loading?: string | null;
-  collect_email?: boolean | null;
-  email_title?: string | null;
-  email_placeholder?: string | null;
-  consent_link?: string | null;
-  skip_welcome?: boolean | null;
-  dark_mode?: boolean | null;
-  inline_consent?: boolean | null;
-  voice_enabled?: boolean | null;
   model?: string | null;
   reasoning_effort?: string | null;
   temperature?: number | null;

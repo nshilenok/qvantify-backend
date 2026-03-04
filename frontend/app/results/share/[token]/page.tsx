@@ -1,6 +1,6 @@
 "use client";
 
-import { SharePage } from "@/components/results/SharePage";
+import { SharePage } from "@/components/results/share/SharePage";
 
 export default function ResultsSharePage() {
   return <SharePage />;

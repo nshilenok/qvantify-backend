@@ -9,7 +9,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-import conversationInterface as ci
+import interview.conversation as ci
 
 
 class _TopicStub:
@@ -36,8 +36,9 @@ class _DBStub:
             return list(self.records)
         return []
 
-    def store_message(self, role, message):
-        topic = g.baseTopic if role == "user" else g.topic
+    def store_message(self, project_id, user_id, base_topic, current_topic,
+                      role, message, voice_input=False, audio_tokens=0):
+        topic = base_topic if role == "user" else current_topic
         self.records.append((datetime.now(timezone.utc), role, message, topic))
 
     def query_database_one(self, query, params):
@@ -166,9 +167,9 @@ def test_provide_response_topic_change_still_sends_one_system(app_ctx, monkeypat
 
 
 def test_streaming_path_reuses_canonical_builder():
-    server_path = Path(__file__).resolve().parents[1] / "server.py"
-    source = server_path.read_text(encoding="utf-8")
-    assert "messages = chat.buildModelMessages()" in source
+    handler_path = Path(__file__).resolve().parents[1] / "interview" / "reply_handler.py"
+    source = handler_path.read_text(encoding="utf-8")
+    assert "messages = self.chat.buildModelMessages()" in source
     assert "llm.streamResponseOpenAI(messages, tools=tools)" in source
 
 

@@ -1,4 +1,4 @@
-import type { InterviewResponse, ProjectConfig, ReplyResponse, RespondentResponse } from "./types";
+import type { DebugInfo, InterviewResponse, ProgressState, ProjectConfig, ReplyResponse, RespondentResponse } from "./types";
 
 const parseJson = async <T>(response: Response): Promise<T> => {
   const text = await response.text();
@@ -143,5 +143,126 @@ export const transcribeVoice = async ({
   }
   return { text, audioTokens: Number(data.audio_tokens || 0) };
 };
+
+export interface StreamReplyOptions {
+  projectId: string;
+  uuid: string;
+  message: string;
+  voiceInput?: boolean;
+  audioTokens?: number;
+}
+
+export interface StreamReplyResult {
+  response: string;
+  status: string;
+  progress?: ProgressState;
+  version?: string;
+  _debug?: DebugInfo;
+}
+
+/**
+ * Send a reply with SSE streaming. Calls `onDelta` for each incremental text
+ * chunk, then resolves with the final result.
+ *
+ * Falls back to a single JSON response when the server doesn't return an
+ * event stream (e.g. for non-streamable topic types).
+ */
+export async function streamReply(
+  options: StreamReplyOptions,
+  onDelta?: (accumulated: string) => void,
+): Promise<StreamReplyResult> {
+  const { projectId, uuid, message, voiceInput, audioTokens } = options;
+
+  const response = await fetch("/api/reply", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      Accept: "text/event-stream",
+      projectId,
+      uuid,
+    },
+    body: JSON.stringify({
+      message,
+      stream: true,
+      voice_input: Boolean(voiceInput),
+      audio_tokens: voiceInput ? audioTokens ?? 0 : 0,
+    }),
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || "Failed to send reply");
+  }
+
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("text/event-stream") || !response.body) {
+    const payload = await response.json();
+    return {
+      response: payload.response ?? "",
+      status: payload.status ?? "open",
+      progress: payload.progress,
+      version: payload.version,
+      _debug: payload._debug,
+    };
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let full = "";
+  let finalPayload: StreamReplyResult | null = null;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let boundary = buffer.indexOf("\n\n");
+    while (boundary !== -1) {
+      const chunk = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      boundary = buffer.indexOf("\n\n");
+
+      const dataLine = chunk
+        .split("\n")
+        .map((line) => line.trim())
+        .find((line) => line.startsWith("data:"));
+      if (!dataLine) continue;
+      const raw = dataLine.replace(/^data:\s*/, "");
+      if (!raw) continue;
+
+      let payload: Record<string, unknown>;
+      try {
+        payload = JSON.parse(raw);
+      } catch {
+        continue;
+      }
+
+      if (payload.type === "delta") {
+        const delta = (payload.delta as string) || "";
+        if (!delta) continue;
+        full += delta;
+        onDelta?.(full);
+        continue;
+      }
+
+      if (payload.type === "final") {
+        if (typeof payload.response === "string") {
+          full = payload.response;
+          onDelta?.(full);
+        }
+        finalPayload = {
+          response: (payload.response as string) ?? full,
+          status: (payload.status as string) ?? "open",
+          progress: payload.progress as ProgressState | undefined,
+          version: payload.version as string | undefined,
+          _debug: payload._debug as DebugInfo | undefined,
+        };
+      }
+    }
+  }
+
+  return finalPayload ?? { response: full, status: "open" };
+}
 
 export * from "./results-api";

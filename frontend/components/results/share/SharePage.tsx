@@ -15,68 +15,21 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { Avatar, RoleAvatar } from "@/components/ui/avatar";
-import { Skeleton, SkeletonSessionItem, SkeletonMessage } from "@/components/ui/skeleton";
+import { Avatar } from "@/components/ui/avatar";
+import { Skeleton, SkeletonMessage } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { FilterBar } from "@/components/results/shared/FilterBar";
+import { SessionList } from "@/components/results/shared/SessionList";
+import { TranscriptView } from "@/components/results/shared/TranscriptView";
+import {
+  toLocalDateKey, groupByDay, formatTokenCount,
+  formatLocalTime, buildTranscriptItems,
+  type TranscriptItem,
+} from "@/lib/format";
+import type { BaseFilterField, FilterRow, TextFilterOp, DateFilterOp, ResponsesFilterOp, AudioFilterOp } from "@/lib/session-filters";
 
-type FilterField = "external_id" | "date" | "responses" | "audio_tokens";
-type TextFilterOp = "" | "exists" | "not_exists" | "equals" | "not_equals" | "contains" | "not_contains";
-type DateFilterOp = "after" | "before" | "between" | "last_7_days" | "last_30_days" | "this_week" | "this_month";
-type ResponsesFilterOp = "at_least" | "at_most" | "between" | "equals";
-type AudioFilterOp = "has" | "not_has" | "at_least" | "at_most" | "between";
-
-interface FilterRow {
-  id: string;
-  field: FilterField;
-  op: string;
-  value: string;
-  value2?: string;
-}
-
-function toLocalDateKey(ts: string) {
-  const date = new Date(ts);
-  if (Number.isNaN(date.getTime())) return "Unknown";
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function groupByDay(sessions: SessionListItem[], direction: "asc" | "desc" = "desc") {
-  const groups: Record<string, SessionListItem[]> = {};
-  for (const s of sessions) {
-    const ts = s.last_activity_at || s.created_at;
-    const day = ts ? toLocalDateKey(ts) : "Unknown";
-    groups[day] = groups[day] || [];
-    groups[day].push(s);
-  }
-  const days = Object.keys(groups).sort((a, b) => {
-    if (direction === "asc") return a > b ? 1 : -1;
-    return a < b ? 1 : -1;
-  });
-  return days.map((d) => ({ day: d, sessions: groups[d] }));
-}
-
-function formatDate(dateStr: string): string {
-  const [year, month, day] = dateStr.split("-").map(Number);
-  const date =
-    Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day)
-      ? new Date(year, month - 1, day)
-      : new Date(dateStr);
-  const now = new Date();
-  const isToday = date.toDateString() === now.toDateString();
-  const isYesterday = new Date(now.getTime() - 86400000).toDateString() === date.toDateString();
-  
-  if (isToday) return "Today";
-  if (isYesterday) return "Yesterday";
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
-function formatTokenCount(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
-  return `${value}`;
-}
+type FilterField = BaseFilterField;
+type ShareFilterRow = FilterRow<FilterField>;
 
 export function SharePage() {
   const params = useParams();
@@ -168,7 +121,7 @@ export function SharePage() {
   const [showAudioOnly, setShowAudioOnly] = React.useState(false);
   const [hideEmptyInterviews, setHideEmptyInterviews] = React.useState(false);
   const [hideSessionsMarkedAsSeen, setHideSessionsMarkedAsSeen] = React.useState(false);
-  const [filterRows, setFilterRows] = React.useState<FilterRow[]>([
+  const [filterRows, setFilterRows] = React.useState<ShareFilterRow[]>([
     { id: "external_id", field: "external_id", op: "contains", value: "" },
   ]);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
@@ -217,15 +170,8 @@ export function SharePage() {
       // Ignore localStorage failures in restricted browser contexts.
     }
   }, [hideEmptyInterviews, hideEmptyStorageKey]);
-  const formatLocalTime = React.useCallback(
-    (value?: string | null) => {
-      if (!value) return "";
-      const date = new Date(value);
-      if (Number.isNaN(date.getTime())) return "";
-      const options: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit" };
-      if (userTimeZone) options.timeZone = userTimeZone;
-      return new Intl.DateTimeFormat("en-US", options).format(date);
-    },
+  const fmtTime = React.useCallback(
+    (value?: string | null) => formatLocalTime(value, userTimeZone),
     [userTimeZone]
   );
   const formatSidebarDateTime = React.useCallback(
@@ -427,30 +373,10 @@ export function SharePage() {
       setShowAudioOnly(false);
     }
   }, [hasAudioMessages, showAudioOnly]);
-  interface TranscriptGroupItem {
-    type: "group";
-    id: string;
-    label: string;
-  }
-  interface TranscriptMessageItem {
-    type: "message";
-    id: string;
-    record: (typeof displayRecords)[number];
-  }
-  type TranscriptItem = TranscriptGroupItem | TranscriptMessageItem;
-  const transcriptItems = React.useMemo<TranscriptItem[]>(() => {
-    const items: TranscriptItem[] = [];
-    let lastGroupKey = "";
-    for (const record of filteredRecords) {
-      const groupLabel = String(record.topic_group ?? "").trim();
-      if (groupLabel && groupLabel !== lastGroupKey) {
-        items.push({ type: "group", id: `group-${record.id}`, label: groupLabel });
-        lastGroupKey = groupLabel;
-      }
-      items.push({ type: "message", id: record.id, record });
-    }
-    return items;
-  }, [filteredRecords]);
+  const transcriptItems = React.useMemo<TranscriptItem[]>(
+    () => buildTranscriptItems(filteredRecords),
+    [filteredRecords]
+  );
 
   React.useEffect(() => {
     if (!selected) return;
@@ -516,42 +442,6 @@ export function SharePage() {
     { value: "audio_tokens", label: "Audio tokens (usage)" },
   ];
 
-  const textOperatorOptions: Array<{ value: TextFilterOp; label: string }> = [
-    { value: "", label: "Any" },
-    { value: "exists", label: "Exists" },
-    { value: "not_exists", label: "Does not exist" },
-    { value: "equals", label: "Equals" },
-    { value: "not_equals", label: "Does not equal" },
-    { value: "contains", label: "Contains" },
-    { value: "not_contains", label: "Does not contain" },
-  ];
-
-  const dateOperatorOptions: Array<{ value: DateFilterOp; label: string }> = [
-    { value: "after", label: "After" },
-    { value: "before", label: "Before" },
-    { value: "between", label: "Between" },
-    { value: "last_7_days", label: "Last 7 days" },
-    { value: "last_30_days", label: "Last 30 days" },
-    { value: "this_week", label: "This week" },
-    { value: "this_month", label: "This month" },
-  ];
-
-  const responsesOperatorOptions: Array<{ value: ResponsesFilterOp; label: string }> = [
-    { value: "at_least", label: "At least" },
-    { value: "at_most", label: "At most" },
-    { value: "between", label: "Between" },
-    { value: "equals", label: "Equals" },
-  ];
-
-  const audioOperatorOptions: Array<{ value: AudioFilterOp; label: string }> = [
-    { value: "has", label: "Has audio" },
-    { value: "not_has", label: "Does not have audio" },
-    { value: "at_least", label: "At least" },
-    { value: "at_most", label: "At most" },
-    { value: "between", label: "Between" },
-  ];
-
-  const createFilterId = () => `filter-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const defaultOperatorForField = (field: FilterField) => {
     switch (field) {
       case "external_id":
@@ -566,25 +456,6 @@ export function SharePage() {
         return "";
     }
   };
-
-  const addFilterRow = () => {
-    const used = new Set(filterRows.map((row) => row.field));
-    const nextField = fieldOptions.find((opt) => !used.has(opt.value))?.value;
-    if (!nextField) return;
-    setFilterRows((rows) =>
-      rows.concat({ id: createFilterId(), field: nextField, op: defaultOperatorForField(nextField), value: "" })
-    );
-  };
-
-  const removeFilterRow = (rowId: string) => {
-    setFilterRows((rows) => rows.filter((row) => row.id !== rowId));
-  };
-
-  const updateFilterRow = (rowId: string, updates: Partial<FilterRow>) => {
-    setFilterRows((rows) => rows.map((row) => (row.id === rowId ? { ...row, ...updates } : row)));
-  };
-  const usedFields = new Set(filterRows.map((row) => row.field));
-  const canAddFilters = filterRows.length < fieldOptions.length;
   const hasSessions = sessions.length > 0;
   const renderSessionRow = (s: SessionListItem) => {
     const active = s.id === selectedId;
@@ -867,194 +738,12 @@ export function SharePage() {
             </label>
           </div>
 
-          <div>
-            <div className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide">Filters</div>
-            <div className="mt-3 grid gap-3">
-              {filterRows.map((row) => {
-                const fieldOptionsForRow = fieldOptions.filter(
-                  (option) => option.value === row.field || !usedFields.has(option.value)
-                );
-                const isTextField = row.field === "external_id";
-                const isDateField = row.field === "date";
-                const isResponsesField = row.field === "responses";
-                const isAudioField = row.field === "audio_tokens";
-                const textDisabled = row.op === "" || row.op === "exists" || row.op === "not_exists";
-                const dateOp = row.op as DateFilterOp;
-                const responsesOp = row.op as ResponsesFilterOp;
-                const audioOp = row.op as AudioFilterOp;
-                const showDateInputs = ["after", "before", "between"].includes(dateOp);
-                const showDateRange = dateOp === "between";
-                const showResponsesRange = responsesOp === "between";
-                const showAudioRange = audioOp === "between";
-                const audioDisabled = audioOp === "has" || audioOp === "not_has";
-
-                return (
-                  <div key={row.id} className="rounded-2xl border border-[var(--border-default)] bg-[var(--bg-secondary)] p-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className="min-w-[160px] flex-1 sm:flex-none sm:w-[180px]">
-                        <Select
-                          value={row.field}
-                          onChange={(value) => {
-                            const field = value as FilterField;
-                            updateFilterRow(row.id, {
-                              field,
-                              op: defaultOperatorForField(field),
-                              value: "",
-                              value2: "",
-                            });
-                          }}
-                          options={fieldOptionsForRow}
-                        />
-                      </div>
-                      <div className="min-w-[180px] flex-1">
-                        <Select
-                          value={row.op}
-                          onChange={(value) => updateFilterRow(row.id, { op: value as string, value: "", value2: "" })}
-                          options={
-                            isTextField
-                              ? textOperatorOptions
-                              : isDateField
-                              ? dateOperatorOptions
-                              : isAudioField
-                              ? audioOperatorOptions
-                              : responsesOperatorOptions
-                          }
-                        />
-                      </div>
-                      <div className="flex-1 min-w-[220px]">
-                        {isTextField && (
-                          <Input
-                            value={row.value}
-                            onChange={(e) => updateFilterRow(row.id, { value: e.target.value })}
-                            placeholder="Value"
-                            disabled={textDisabled}
-                          />
-                        )}
-
-                        {isDateField && !showDateInputs && (
-                          <div className="flex items-center text-xs text-[var(--text-muted)]">
-                            Date range auto-set
-                          </div>
-                        )}
-
-                        {isDateField && showDateInputs && !showDateRange && (
-                          <Input
-                            type="date"
-                            value={row.value}
-                            onChange={(e) => updateFilterRow(row.id, { value: e.target.value })}
-                          />
-                        )}
-
-                        {isDateField && showDateRange && (
-                          <div className="grid gap-2 sm:grid-cols-2">
-                            <Input
-                              type="date"
-                              value={row.value}
-                              onChange={(e) => updateFilterRow(row.id, { value: e.target.value })}
-                              placeholder="Start date"
-                            />
-                            <Input
-                              type="date"
-                              value={row.value2 || ""}
-                              onChange={(e) => updateFilterRow(row.id, { value2: e.target.value })}
-                              placeholder="End date"
-                            />
-                          </div>
-                        )}
-
-                        {isResponsesField && !showResponsesRange && (
-                          <Input
-                            type="number"
-                            min={0}
-                            step={1}
-                            inputMode="numeric"
-                            value={row.value}
-                            onChange={(e) => updateFilterRow(row.id, { value: e.target.value })}
-                            placeholder="Value"
-                          />
-                        )}
-
-                        {isResponsesField && showResponsesRange && (
-                          <div className="grid gap-2 sm:grid-cols-2">
-                            <Input
-                              type="number"
-                              min={0}
-                              step={1}
-                              inputMode="numeric"
-                              value={row.value}
-                              onChange={(e) => updateFilterRow(row.id, { value: e.target.value })}
-                              placeholder="Min"
-                            />
-                            <Input
-                              type="number"
-                              min={0}
-                              step={1}
-                              inputMode="numeric"
-                              value={row.value2 || ""}
-                              onChange={(e) => updateFilterRow(row.id, { value2: e.target.value })}
-                              placeholder="Max"
-                            />
-                          </div>
-                        )}
-
-                        {isAudioField && !showAudioRange && (
-                          <Input
-                            type="number"
-                            min={0}
-                            step={1}
-                            inputMode="numeric"
-                            value={row.value}
-                            onChange={(e) => updateFilterRow(row.id, { value: e.target.value })}
-                            placeholder="Tokens"
-                            disabled={audioDisabled}
-                          />
-                        )}
-
-                        {isAudioField && showAudioRange && (
-                          <div className="grid gap-2 sm:grid-cols-2">
-                            <Input
-                              type="number"
-                              min={0}
-                              step={1}
-                              inputMode="numeric"
-                              value={row.value}
-                              onChange={(e) => updateFilterRow(row.id, { value: e.target.value })}
-                              placeholder="Min"
-                            />
-                            <Input
-                              type="number"
-                              min={0}
-                              step={1}
-                              inputMode="numeric"
-                              value={row.value2 || ""}
-                              onChange={(e) => updateFilterRow(row.id, { value2: e.target.value })}
-                              placeholder="Max"
-                            />
-                          </div>
-                        )}
-                      </div>
-                      <button
-                        onClick={() => removeFilterRow(row.id)}
-                        className="ml-auto text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="pt-3">
-              <button
-                onClick={addFilterRow}
-                disabled={!canAddFilters}
-                className="rounded-full border border-[var(--border-default)] bg-white px-3 py-1 text-xs font-semibold text-[var(--text-secondary)] shadow-[var(--shadow-sm)] disabled:opacity-50"
-              >
-                + Add filter
-              </button>
-            </div>
-          </div>
+          <FilterBar
+            rows={filterRows}
+            onRowsChange={setFilterRows}
+            fieldOptions={fieldOptions}
+            defaultOperatorForField={defaultOperatorForField}
+          />
         </div>
       </div>
 
@@ -1062,56 +751,31 @@ export function SharePage() {
         {/* Sidebar */}
         <div className="lg:col-span-4 space-y-4 lg:flex lg:min-h-0 lg:flex-col">
           {/* Sessions */}
-          <div className="glass-card rounded-3xl overflow-hidden lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
-            <div className="p-4 border-b border-[var(--border-default)]">
-              <div className="text-sm font-semibold text-[var(--text-primary)]">Sessions</div>
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--text-muted)]">
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">Sort</span>
-                  <div className="min-w-[180px]">
-                    <Select value={sortKey} onChange={setSortKey} options={sortOptions} />
+          <SessionList
+            className="glass-card rounded-3xl overflow-hidden lg:flex lg:min-h-0 lg:flex-1 lg:flex-col"
+            header={
+              <>
+                <div className="text-sm font-semibold text-[var(--text-primary)]">Sessions</div>
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--text-muted)]">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">Sort</span>
+                    <div className="min-w-[180px]">
+                      <Select value={sortKey} onChange={setSortKey} options={sortOptions} />
+                    </div>
                   </div>
                 </div>
-              </div>
-            </div>
-
-            <div className="p-3 max-h-[520px] overflow-y-auto bg-[var(--bg-secondary)] lg:max-h-none lg:flex-1 lg:min-h-0">
-              {listQ.isLoading && (
-                <div className="space-y-2 p-2">
-                  <SkeletonSessionItem />
-                  <SkeletonSessionItem />
-                  <SkeletonSessionItem />
-                </div>
-              )}
-
-              {listQ.error && (
-                <div className="p-4 text-sm text-red-400">{(listQ.error as Error).message}</div>
-              )}
-
-              {listQ.data && isDateSort && grouped.length > 0 && (
-                <div className="space-y-4">
-                  {grouped.map((g) => (
-                    <div key={g.day}>
-                      <div className="px-3 py-1.5 text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">
-                        {formatDate(g.day)}
-                      </div>
-                      <div className="space-y-1">{g.sessions.map(renderSessionRow)}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {listQ.data && !isDateSort && flatSessions.length > 0 && (
-                <div className="space-y-1">{flatSessions.map(renderSessionRow)}</div>
-              )}
-
-              {listQ.data && !hasSessions && (
-                <div className="p-8 text-center text-sm text-[var(--text-muted)]">
-                  No sessions found
-                </div>
-              )}
-            </div>
-          </div>
+              </>
+            }
+            grouped={grouped}
+            flatSessions={flatSessions}
+            isDateSort={isDateSort}
+            hasSessions={hasSessions}
+            isLoading={listQ.isLoading}
+            error={listQ.error as Error | null}
+            hasData={!!listQ.data}
+            renderRow={renderSessionRow}
+            bodyClassName="p-3 max-h-[520px] overflow-y-auto bg-[var(--bg-secondary)] lg:max-h-none lg:flex-1 lg:min-h-0"
+          />
         </div>
 
         {/* Main Content */}
@@ -1301,76 +965,13 @@ export function SharePage() {
                 </div>
 
                 {/* Transcript */}
-                <div className="flex-1 overflow-y-auto p-6 bg-[var(--bg-secondary)]">
-                  <div className="space-y-4">
-                    {transcriptItems.map((item) => {
-                      if (item.type === "group") {
-                        return (
-                          <div key={item.id} className="flex justify-center">
-                            <div className="text-xs text-[var(--text-muted)]">- {item.label} -</div>
-                          </div>
-                        );
-                      }
-
-                      const m = item.record;
-                      const isUser = m.role === "user";
-                      const isVoice = isUser && m.voice_input;
-
-                      return (
-                        <div
-                          key={item.id}
-                          className={`flex gap-3 ${isUser ? "flex-row-reverse" : ""} animate-fade-in`}
-                        >
-                          <RoleAvatar role={m.role} size="sm" />
-                          <div className={`max-w-[75%] ${isUser ? "items-end" : ""}`}>
-                            <div
-                              className={`
-                                group relative rounded-2xl px-4 py-3 text-sm leading-relaxed
-                                ${isUser
-                                  ? "bg-[var(--brand-primary)] text-white"
-                                  : "bg-white border border-[var(--border-default)] text-[var(--text-primary)]"
-                                }
-                              `}
-                            >
-                              <button
-                                type="button"
-                                onClick={() => copyText(m.content || "")}
-                                className={`
-                                  absolute top-2 ${isUser ? "left-2" : "right-2"}
-                                  rounded-full border border-[var(--border-default)] bg-white px-2 py-0.5 text-[10px] font-semibold text-[var(--text-secondary)]
-                                  opacity-0 transition-opacity group-hover:opacity-100
-                                `}
-                                aria-label="Copy message"
-                              >
-                                Copy
-                              </button>
-                              <div className="whitespace-pre-wrap">{m.content}</div>
-                            </div>
-                            <div className={`mt-1.5 flex items-center gap-3 text-[10px] text-[var(--text-muted)] ${isUser ? "justify-end" : ""}`}>
-                              <span>{formatLocalTime(m.created_at)}</span>
-                              {isVoice && (
-                                <span className="inline-flex items-center gap-1 text-[var(--text-subtle)]">
-                                  <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3z" />
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 10v2a7 7 0 01-14 0v-2" />
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 19v3" />
-                                  </svg>
-                                  Voice
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-
-                    {filteredRecords.length === 0 && (
-                      <div className="text-center py-12 text-sm text-[var(--text-muted)]">
-                        No messages yet.
-                      </div>
-                    )}
-                  </div>
-                </div>
+                <TranscriptView
+                  items={transcriptItems}
+                  recordCount={filteredRecords.length}
+                  emptyMessage="No messages yet."
+                  formatTime={fmtTime}
+                  onCopy={copyText}
+                />
               </div>
             )}
           </div>

@@ -26,7 +26,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-import conversationInterface as ci
+import interview.conversation as ci
 import autoTopic
 from topic import topicHandler
 
@@ -67,8 +67,9 @@ class _DBStub:
     def query_database_insert(self, query, params):
         self.inserts.append((query, params))
 
-    def store_message(self, role, content):
-        topic = getattr(g, "baseTopic", None) if role == "user" else getattr(g, "topic", None)
+    def store_message(self, project_id, user_id, base_topic, current_topic,
+                      role, content, voice_input=False, audio_tokens=0):
+        topic = base_topic if role == "user" else current_topic
         self.records.append((datetime.now(timezone.utc), role, content, topic))
 
     def close(self):
@@ -429,8 +430,11 @@ def test_provide_response_auto_topic_switch_no_infinite_loop(app_ctx, monkeypatc
         g.topicIsChanging = True
         return "t02"
 
-    monkeypatch.setattr(autoTopic, "switchTopic", lambda resp: mock_force_switch()
-                        if getattr(resp.choices[0].message, "tool_calls", None) else None)
+    mock_switch = lambda resp, topic_engine=None: mock_force_switch() \
+        if getattr(resp.choices[0].message, "tool_calls", None) else None
+    monkeypatch.setattr(autoTopic, "switchTopic", mock_switch)
+    import interview.topic_engine as _te
+    monkeypatch.setattr(_te, "handle_tool_call", mock_switch)
 
     chat = ci.conversation(topic_stub)
     chat.getDefaultPrompt = lambda topic_id=None: "DEFAULT PROMPT"

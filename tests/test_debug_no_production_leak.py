@@ -22,7 +22,7 @@ class _DBStub:
             return ("gpt-5.2", "medium")
         return (None,)
 
-    def store_message(self, role, content):
+    def store_message(self, *args, **kwargs):
         pass
 
     def close(self):

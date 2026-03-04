@@ -10,6 +10,8 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 import server as srv
+import interview.reply_handler as rh
+import interview.topic_engine as te
 
 
 def _drain_response_text(response):
@@ -35,7 +37,8 @@ class _DBStub:
     def __init__(self):
         self.messages = []
 
-    def store_message(self, role, content):
+    def store_message(self, project_id, user_id, base_topic, current_topic,
+                      role, content, voice_input=False, audio_tokens=0):
         self.messages.append((role, content))
 
     def close(self):
@@ -150,10 +153,11 @@ class _LLMPromptStub:
 
 def test_reply_stream_auto_path_emits_keepalive_uses_tools_and_returns_final(monkeypatch):
     monkeypatch.setattr(srv, "check_if_user_exists", lambda: None)
-    monkeypatch.setattr(srv, "conversation", _ConversationAutoStub)
-    monkeypatch.setattr(srv, "LLM", _LLMAutoStub)
-    monkeypatch.setattr(srv.autoTopic, "switchTopic", lambda response: "swipking3_t02")
-    monkeypatch.setattr(srv, "_analysis_needed", lambda project_id, respondent_id: False)
+    monkeypatch.setattr(rh, "conversation", _ConversationAutoStub)
+    monkeypatch.setattr(rh, "LLM", _LLMAutoStub)
+    mock_switch = lambda response, topic_engine=None: "swipking3_t02"
+    monkeypatch.setattr(te, "handle_tool_call", mock_switch)
+    monkeypatch.setattr(rh, "handle_tool_call", mock_switch)
 
     db = _DBStub()
     with srv.app.test_request_context(
@@ -189,9 +193,8 @@ def test_reply_stream_auto_path_emits_keepalive_uses_tools_and_returns_final(mon
 
 def test_reply_stream_prompt_path_still_streams_delta_and_final(monkeypatch):
     monkeypatch.setattr(srv, "check_if_user_exists", lambda: None)
-    monkeypatch.setattr(srv, "conversation", _ConversationPromptStub)
-    monkeypatch.setattr(srv, "LLM", _LLMPromptStub)
-    monkeypatch.setattr(srv, "_analysis_needed", lambda project_id, respondent_id: False)
+    monkeypatch.setattr(rh, "conversation", _ConversationPromptStub)
+    monkeypatch.setattr(rh, "LLM", _LLMPromptStub)
 
     db = _DBStub()
     with srv.app.test_request_context(

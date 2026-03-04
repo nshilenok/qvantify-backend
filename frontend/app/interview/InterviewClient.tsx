@@ -2,7 +2,7 @@
 
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { createRespondent, initInterview } from "@/lib/api";
+import { createRespondent, initInterview, streamReply } from "@/lib/api";
 import type { DebugInfo, Message, ProgressState } from "@/lib/types";
 import { useProject } from "@/hooks/useProject";
 import WelcomeScreen from "@/components/interview/WelcomeScreen";
@@ -269,48 +269,6 @@ export default function InterviewClient() {
       setStreamingResponse(null);
       setMessages((prev) => [...prev, createMessage("user", message)]);
       try {
-        const response = await fetch("/api/reply", {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            Accept: "text/event-stream",
-            projectId,
-            uuid,
-          },
-          body: JSON.stringify({
-            message,
-            stream: true,
-            voice_input: Boolean(meta?.voiceInput),
-            audio_tokens: meta?.voiceInput ? meta?.audioTokens ?? 0 : 0,
-          }),
-        });
-        if (!response.ok) {
-          const payload = await response.json().catch(() => null);
-          throw new Error(payload?.error || "Failed to send reply");
-        }
-
-        const contentType = response.headers.get("content-type") || "";
-        if (!contentType.includes("text/event-stream") || !response.body) {
-          const payload = await response.json();
-          logBeVersion(payload.version);
-          logDebug("reply (non-stream)", payload._debug);
-          setMessages((prev) => [...prev, createMessage("assistant", payload.response)]);
-          setProgress(payload.progress || null);
-          if (payload.status === "closed") {
-            setPhase("success");
-          }
-          return;
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        let full = "";
-        let finalPayload: {
-          response?: string;
-          status?: string;
-          progress?: ProgressState;
-        } | null = null;
         let started = false;
         const markStarted = () => {
           if (started) return;
@@ -318,56 +276,28 @@ export default function InterviewClient() {
           setStreamingStarted(true);
         };
 
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          let boundary = buffer.indexOf("\n\n");
-          while (boundary !== -1) {
-            const chunk = buffer.slice(0, boundary);
-            buffer = buffer.slice(boundary + 2);
-            boundary = buffer.indexOf("\n\n");
+        const result = await streamReply(
+          {
+            projectId,
+            uuid,
+            message,
+            voiceInput: meta?.voiceInput,
+            audioTokens: meta?.voiceInput ? meta?.audioTokens : undefined,
+          },
+          (accumulated) => {
+            markStarted();
+            setStreamingResponse(accumulated);
+          },
+        );
 
-            const dataLine = chunk
-              .split("\n")
-              .map((line) => line.trim())
-              .find((line) => line.startsWith("data:"));
-            if (!dataLine) continue;
-            const raw = dataLine.replace(/^data:\s*/, "");
-            if (!raw) continue;
-            let payload: { type?: string; delta?: string; response?: string; status?: string; progress?: ProgressState; version?: string; _debug?: DebugInfo };
-            try {
-              payload = JSON.parse(raw);
-            } catch {
-              continue;
-            }
-            if (payload.type === "delta") {
-              const delta = payload.delta || "";
-              if (!delta) continue;
-              markStarted();
-              full += delta;
-              setStreamingResponse(full);
-              continue;
-            }
-            if (payload.type === "final") {
-              markStarted();
-              logBeVersion(payload.version);
-              logDebug("reply (stream)", payload._debug);
-              finalPayload = payload;
-              if (typeof payload.response === "string") {
-                full = payload.response;
-                setStreamingResponse(full);
-              }
-            }
-          }
-        }
+        logBeVersion(result.version);
+        logDebug("reply", result._debug);
 
-        const finalText = finalPayload?.response || full;
-        if (finalText) {
-          setMessages((prev) => [...prev, createMessage("assistant", finalText)]);
+        if (result.response) {
+          setMessages((prev) => [...prev, createMessage("assistant", result.response)]);
         }
-        setProgress(finalPayload?.progress || null);
-        if (finalPayload?.status === "closed") {
+        setProgress(result.progress || null);
+        if (result.status === "closed") {
           setPhase("success");
         }
       } catch (err) {

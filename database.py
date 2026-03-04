@@ -1,9 +1,9 @@
 import psycopg2
+import psycopg2.extras
 from psycopg2 import pool
-# from pgvector.psycopg2 import register_vector
-from flask import g
 from datetime import datetime, timezone
 import logging
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +89,44 @@ class DB:
 			cur.close()
 			raise
 				
+	def query_dict_one(self, query: str, parameters: Tuple = ()) -> Optional[Dict[str, Any]]:
+		conn = self.conn
+		cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+		try:
+			cur.execute(query, parameters)
+			result = cur.fetchone()
+			cur.close()
+			return dict(result) if result else None
+		except psycopg2.DatabaseError as e:
+			conn.rollback()
+			cur.close()
+			logger.exception("Database error in query_dict_one: %s", e)
+			raise
+		except Exception as e:
+			conn.rollback()
+			cur.close()
+			logger.exception("Error in query_dict_one: %s", e)
+			raise
+
+	def query_dict_all(self, query: str, parameters: Tuple = ()) -> List[Dict[str, Any]]:
+		conn = self.conn
+		cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+		try:
+			cur.execute(query, parameters)
+			results = cur.fetchall()
+			cur.close()
+			return [dict(r) for r in results]
+		except psycopg2.DatabaseError as e:
+			conn.rollback()
+			cur.close()
+			logger.exception("Database error in query_dict_all: %s", e)
+			raise
+		except Exception as e:
+			conn.rollback()
+			cur.close()
+			logger.exception("Error in query_dict_all: %s", e)
+			raise
+
 	def close(self):
 		self.postgreSQL_pool.closeall()
 
@@ -107,33 +145,25 @@ class DB:
 			records.append(record_row)
 		return records
 
-	def store_message(self,role,message,voice_input=False,audio_tokens=0):
+	def store_message(self, project_id, user_id, base_topic, current_topic,
+					 role, message, voice_input=False, audio_tokens=0):
 		now = datetime.now(timezone.utc)
-		if role == 'user':
-			topic = g.baseTopic
-		else:
-			topic = g.topic
+		topic = base_topic if role == 'user' else current_topic
 		voice_flag = bool(voice_input)
 		token_count = int(audio_tokens or 0)
-		if role == 'user':
-			voice_flag = bool(getattr(g, "voice_input", voice_flag))
-			token_count = int(getattr(g, "audio_tokens", token_count) or 0)
-		else:
+		if role != 'user':
 			voice_flag = False
 			token_count = 0
 		query = "INSERT INTO records (created_at,project,role,content,topic,user_id,voice_input,audio_tokens) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)"
-		query_params = (now,g.projectId,role,message,topic,g.uuid,voice_flag,token_count)
+		query_params = (now, project_id, role, message, topic, user_id, voice_flag, token_count)
 		logger.debug('===Topic ID (message storing) (role: %s)===: %s', role, topic)
 		try:
-			self.query_database_insert(query,query_params)
+			self.query_database_insert(query, query_params)
 		except Exception as e:
 			err_text = str(e)
 			if "voice_input" in err_text or "audio_tokens" in err_text:
 				fallback_query = "INSERT INTO records (created_at,project,role,content,topic,user_id) VALUES (%s,%s,%s,%s,%s,%s)"
-				fallback_params = (now,g.projectId,role,message,topic,g.uuid)
-				self.query_database_insert(fallback_query,fallback_params)
+				fallback_params = (now, project_id, role, message, topic, user_id)
+				self.query_database_insert(fallback_query, fallback_params)
 			else:
 				raise
-		if role == 'user':
-			setattr(g, "voice_input", False)
-			setattr(g, "audio_tokens", 0)
