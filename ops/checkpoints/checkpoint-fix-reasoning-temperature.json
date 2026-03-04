@@ -1,0 +1,36 @@
+{
+  "created_at_utc": "2026-03-04T22:19:50.527691+00:00",
+  "checkpoint_name": "fix-reasoning-temperature",
+  "repository": "/Users/nikitashilenok/vibe projects 2026/projects/qvantify-fullstack",
+  "git": {
+    "current_branch": "staging",
+    "local_main_sha": "99442398b51a3e2078f08949592dd4d8b9ffb43b",
+    "local_staging_sha": "e71cac85092d1ae92cb10ac7b8732d6125b5dccb",
+    "origin_main_sha": "990bb8f209a78e52378e34f0ed13cc296a68b72f",
+    "origin_staging_sha": "e71cac85092d1ae92cb10ac7b8732d6125b5dccb"
+  },
+  "restore_tags": {
+    "main_tag": "checkpoint/main-fix-reasoning-temperature",
+    "staging_tag": "checkpoint/staging-fix-reasoning-temperature"
+  },
+  "vercel": {
+    "app_domain": {
+      "domain": "app.qvantify.com",
+      "deployment_id": "dpl_8g5vXWNwnmNdcdW9gqo4CJeyEX5d",
+      "deployment_url": "https://qvantify-frontend-c0nviiq16-nikita-shilenoks-projects.vercel.app",
+      "project_name": "qvantify-frontend",
+      "target": "production",
+      "ready_state": "READY",
+      "created_at": 1772657672412
+    },
+    "staging_domain": {
+      "domain": "staging.app.qvantify.com",
+      "deployment_id": "dpl_8Je2WXNpHf3DiVmvJ3ddWMdvX4yu",
+      "deployment_url": "https://qvantify-frontend-n0rnxkii5-nikita-shilenoks-projects.vercel.app",
+      "project_name": "qvantify-frontend",
+      "target": "preview",
+      "ready_state": "READY",
+      "created_at": 1772657541257
+    }
+  }
+}

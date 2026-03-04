@@ -699,3 +699,51 @@ Removed legacy api/ JS stubs and app.py.
 - Git author email (info@shhhp.ai) rejected by Vercel — fixed with --amend + force push (known workaround)
 
 ### Status: PRODUCTION GREEN
+
+---
+
+## 2026-03-05 fix-reasoning-temperature (e71cac8)
+
+### Summary
+Fix temperature 400 error on reasoning models (o1/o3/o4). Strip temperature/top_p for all models except gpt-4.1. Broaden system→developer role conversion to all reasoning model families. Includes topic-switch hardening from prior uncommitted work.
+
+### Preflight (23:18 UTC)
+- Import check: PASS
+- Branch safety: PASS
+- API tests: 85 passed in 10.41s
+- Playwright: skipped (port 4173 in use by dev server, non-blocking)
+
+### Staging deploy (23:19 UTC)
+- `git push origin staging` → e71cac8
+- Checkpoint: checkpoint-fix-reasoning-temperature
+- Vercel frontend: qvantify-frontend-ik9k5aamn-nikita-shilenoks-projects.vercel.app
+- Alias: staging.app.qvantify.com → new deploy
+
+### Staging verification (23:20 UTC)
+- Domain aliases: PASS
+- Backend health: version=e71cac8
+- Interview endpoint: 200
+
+### Staging smoke test (23:20 UTC)
+- PASSED (version=e71cac8)
+- swipking2 (gpt-5.2): 2 users, streaming + non-streaming, all clean
+- Swipking3/20ab1e5b (gpt-4.1): 2 users, streaming + non-streaming, all clean
+
+### Production promotion (23:22 UTC)
+- Frontend: app.qvantify.com → qvantify-frontend-61fzlodcc-nikita-shilenoks-projects.vercel.app
+- Backend: `git push origin staging:main` → e71cac8
+
+### Production verification (23:23 UTC)
+- Domain aliases: PASS
+- Backend health: version=e71cac8
+- Interview endpoint: 200
+
+### Production smoke test (23:23 UTC)
+- PASSED (version=e71cac8)
+- swipking2 (gpt-5.2): 2 users, streaming + non-streaming, all clean
+- Swipking3/20ab1e5b (gpt-4.1): 2 users, streaming + non-streaming, all clean
+
+### Issues found during promotion
+- None
+
+### Status: PRODUCTION GREEN
