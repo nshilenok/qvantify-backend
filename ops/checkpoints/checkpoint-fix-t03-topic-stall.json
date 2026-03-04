@@ -1,0 +1,36 @@
+{
+  "created_at_utc": "2026-03-04T11:31:18.945592+00:00",
+  "checkpoint_name": "fix-t03-topic-stall",
+  "repository": "/Users/nikitashilenok/vibe projects 2026/projects/qvantify-fullstack",
+  "git": {
+    "current_branch": "staging",
+    "local_main_sha": "99442398b51a3e2078f08949592dd4d8b9ffb43b",
+    "local_staging_sha": "46c78662083d331c19b8699bafe1c12710629d58",
+    "origin_main_sha": "cca88952d6e2dac60217d93079db1eb5758577ee",
+    "origin_staging_sha": "46c78662083d331c19b8699bafe1c12710629d58"
+  },
+  "restore_tags": {
+    "main_tag": "checkpoint/main-fix-t03-topic-stall",
+    "staging_tag": "checkpoint/staging-fix-t03-topic-stall"
+  },
+  "vercel": {
+    "app_domain": {
+      "domain": "app.qvantify.com",
+      "deployment_id": "dpl_En5bMUQU4kopf47Cdc7u6AjGjBa8",
+      "deployment_url": "https://qvantify-frontend-dm4umgt7r-nikita-shilenoks-projects.vercel.app",
+      "project_name": "qvantify-frontend",
+      "target": "production",
+      "ready_state": "READY",
+      "created_at": 1772540019119
+    },
+    "staging_domain": {
+      "domain": "staging.app.qvantify.com",
+      "deployment_id": "dpl_9iaHk8AYKZ53bpDSMRovC6tHp8QJ",
+      "deployment_url": "https://qvantify-frontend-2p6rzym9t-nikita-shilenoks-projects.vercel.app",
+      "project_name": "qvantify-frontend",
+      "target": "preview",
+      "ready_state": "READY",
+      "created_at": 1772539859307
+    }
+  }
+}
