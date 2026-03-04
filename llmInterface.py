@@ -179,40 +179,124 @@ class LLM():
 		client.close()
 		return response
 
+	def _prepare_openrouter_chat_config(self):
+		"""Build config dict for OpenRouter calls.
+
+		OpenRouter passes params through to the upstream provider, so we
+		keep temperature/top_p (most providers accept them) and handle
+		reasoning via extra_body instead of the OpenAI-specific
+		``reasoning_effort`` parameter.
+		"""
+		config = dict(self.config)
+		model_name = str(config.get("model", ""))
+
+		reasoning_effort = str(config.pop("reasoning_effort", "") or "").strip()
+
+		is_openai_reasoning = (
+			model_name.startswith("openai/gpt-5")
+			or model_name.startswith("openai/o1")
+			or model_name.startswith("openai/o3")
+			or model_name.startswith("openai/o4")
+		)
+		extra_body = {}
+		if is_openai_reasoning:
+			config.pop("temperature", None)
+			config.pop("top_p", None)
+			if "max_tokens" in config:
+				config["max_completion_tokens"] = config.pop("max_tokens")
+			config["reasoning_effort"] = reasoning_effort or "low"
+		elif "grok" in model_name.lower():
+			if reasoning_effort:
+				extra_body["reasoning"] = {"effort": reasoning_effort}
+		return config, extra_body
+
+	def _openrouter_client(self):
+		return OpenAI(
+			base_url="https://openrouter.ai/api/v1",
+			api_key=credentials.openrouter_key,
+		)
+
+	_OPENROUTER_HEADERS = {
+		"HTTP-Referer": "https://qvantify.app",
+		"X-OpenRouter-Title": "Qvantify",
+	}
+
+	def getResponseOpenRouter(self, messages, tools=None, tool_choice=None):
+		config, extra_body = self._prepare_openrouter_chat_config()
+		prepared_messages = self._prepare_openai_messages(messages, config)
+		client = self._openrouter_client()
+		kwargs = dict(
+			**config,
+			messages=prepared_messages,
+			extra_headers=self._OPENROUTER_HEADERS,
+		)
+		if extra_body:
+			kwargs["extra_body"] = extra_body
+		if tools:
+			kwargs["tools"] = tools
+			if tool_choice:
+				kwargs["tool_choice"] = tool_choice
+		response = client.chat.completions.create(**kwargs)
+		logger.debug('==========================OpenRouter Output===========================: %s', response)
+		self.saveUsage(response)
+		client.close()
+		return response
+
 	def streamResponseOpenAI(self, messages, tools=None) -> Generator[Tuple[str, Any], None, None]:
-		"""
-		Stream OpenAI chat.completions and yield:
-		- ("delta", str) for content token deltas
-		- ("tool_call", dict) for tool call deltas (best-effort passthrough)
-		- ("done", None) at end
-		"""
 		config = self._prepare_openai_chat_config()
 		prepared_messages = self._prepare_openai_messages(messages, config)
 		os.environ["OPENAI_API_KEY"] = self.key
 		client = OpenAI()
 		try:
-			if tools:
-				stream = client.chat.completions.create(**config, messages=prepared_messages, tools=tools, stream=True)
-			else:
-				stream = client.chat.completions.create(**config, messages=prepared_messages, stream=True)
-			for chunk in stream:
-				if not getattr(chunk, "choices", None):
-					continue
-				choice = chunk.choices[0]
-				delta = getattr(choice, "delta", None)
-				if delta is None:
-					continue
-				content = getattr(delta, "content", None)
-				if content:
-					yield ("delta", content)
-				tool_calls = getattr(delta, "tool_calls", None)
-				if tool_calls:
-					# tool_calls is a list of deltas; forward raw dict-ish representation
-					for tc in tool_calls:
-						yield ("tool_call", getattr(tc, "model_dump", lambda: tc)())
-			yield ("done", None)
+			yield from self._stream_with_client(client, config, prepared_messages, tools)
 		finally:
 			client.close()
+
+	def streamResponseOpenRouter(self, messages, tools=None) -> Generator[Tuple[str, Any], None, None]:
+		config, extra_body = self._prepare_openrouter_chat_config()
+		prepared_messages = self._prepare_openai_messages(messages, config)
+		client = self._openrouter_client()
+		try:
+			yield from self._stream_with_client(
+				client, config, prepared_messages, tools,
+				extra_headers=self._OPENROUTER_HEADERS,
+				extra_body=extra_body or None,
+			)
+		finally:
+			client.close()
+
+	def _stream_with_client(self, client, config, messages, tools=None, extra_headers=None, extra_body=None) -> Generator[Tuple[str, Any], None, None]:
+		"""Shared streaming logic for any OpenAI-compatible client."""
+		kwargs = dict(**config, messages=messages, stream=True)
+		if tools:
+			kwargs["tools"] = tools
+		if extra_headers:
+			kwargs["extra_headers"] = extra_headers
+		if extra_body:
+			kwargs["extra_body"] = extra_body
+		stream = client.chat.completions.create(**kwargs)
+		for chunk in stream:
+			if not getattr(chunk, "choices", None):
+				continue
+			choice = chunk.choices[0]
+			delta = getattr(choice, "delta", None)
+			if delta is None:
+				continue
+			content = getattr(delta, "content", None)
+			if content:
+				yield ("delta", content)
+			tool_calls = getattr(delta, "tool_calls", None)
+			if tool_calls:
+				for tc in tool_calls:
+					yield ("tool_call", getattr(tc, "model_dump", lambda: tc)())
+		yield ("done", None)
+
+	def streamResponse(self, messages, tools=None) -> Generator[Tuple[str, Any], None, None]:
+		"""Dispatch streaming to the correct provider based on project api setting."""
+		if self.api == "openrouter":
+			yield from self.streamResponseOpenRouter(messages, tools)
+		else:
+			yield from self.streamResponseOpenAI(messages, tools)
 
 	def getResponse(self,messages,tools=None,tool_choice=None):
 		uid = getattr(g, "uuid", None) if has_request_context() else None
@@ -222,6 +306,8 @@ class LLM():
 				return self.getResponseOpenAI(messages,tools,tool_choice)
 			if self.api == "azure":
 				return self.getResponseAzure(messages,tools,tool_choice)
+			if self.api == "openrouter":
+				return self.getResponseOpenRouter(messages,tools,tool_choice)
 		except Exception as e:
 			logger.exception('Error in LLM getResponse: %s', str(e))
 			raise

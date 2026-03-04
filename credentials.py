@@ -79,6 +79,7 @@ def get_db_config() -> dict:
 openaiapi_key = _get_env("OPENAI_API_KEY")
 openaiapi_panda_key = _get_env("OPENAI_PANDA_KEY")
 azureopenai_key = _get_env("AZURE_OPENAI_KEY")
+openrouter_key = _get_env("OPENROUTER_API_KEY")
 
 # Project configuration
 panda_project = _get_env("PANDA_PROJECT_ID") or "your_panda_project_id"

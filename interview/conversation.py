@@ -169,9 +169,11 @@ class conversation():
 			prompt = results or credentials.default_prompt
 			return self._render_prompt_template(prompt, topic_id or self._current_topic)
 
-		def buildModelMessages(self):
+		def buildModelMessages(self, with_tool_note=False):
 			records = self.retrieveRecords()
 			system_prompt = self.retrieveTopic() + '\n \n' + self.getDefaultPrompt()
+			if with_tool_note:
+				system_prompt += self._TOOL_CALL_NOTE
 			history = []
 			for message in records:
 				role = message[1]
@@ -201,7 +203,8 @@ class conversation():
 			else:
 				self._store("user", user_input)
 				return None
-			messages = self.buildModelMessages()
+			is_auto = promptType == "auto"
+			messages = self.buildModelMessages(with_tool_note=is_auto)
 			system_prompt = self.retrieveTopic() + '\n \n' + self.getDefaultPrompt()
 
 			topic_changing = self._is_topic_changing()
@@ -264,6 +267,8 @@ class conversation():
 			"You MUST now ask the question from CURRENT TOPIC. "
 			"Do NOT continue the previous topic's conversation."
 		)
+
+		_TOOL_CALL_NOTE = "\n\nNote: Don't mix calling tools and sending text."
 
 		def _buildInitialMessages(self):
 			"""Build messages for provideInitialResponse.

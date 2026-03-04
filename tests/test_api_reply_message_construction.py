@@ -169,8 +169,8 @@ def test_provide_response_topic_change_still_sends_one_system(app_ctx, monkeypat
 def test_streaming_path_reuses_canonical_builder():
     handler_path = Path(__file__).resolve().parents[1] / "interview" / "reply_handler.py"
     source = handler_path.read_text(encoding="utf-8")
-    assert "messages = self.chat.buildModelMessages()" in source
-    assert "llm.streamResponseOpenAI(messages, tools=tools)" in source
+    assert "self.chat.buildModelMessages(" in source
+    assert "llm.streamResponse(messages, tools=tools)" in source
 
 
 def test_provide_initial_response_on_topic_switch_includes_prior_history(app_ctx, monkeypatch):

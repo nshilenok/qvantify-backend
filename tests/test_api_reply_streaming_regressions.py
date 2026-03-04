@@ -65,7 +65,7 @@ class _ConversationAutoStub:
     def __init__(self, _th):
         self.DB = g.db
 
-    def buildModelMessages(self):
+    def buildModelMessages(self, with_tool_note=False):
         return [{"role": "system", "content": "CURRENT TOPIC: purchase blockers"}]
 
     def retrieveTopicStatus(self):
@@ -82,7 +82,7 @@ class _ConversationPromptStub:
     def __init__(self, _th):
         self.DB = g.db
 
-    def buildModelMessages(self):
+    def buildModelMessages(self, with_tool_note=False):
         return [{"role": "system", "content": "CURRENT TOPIC: prompt topic"}]
 
     def retrieveTopicStatus(self):
@@ -131,8 +131,8 @@ class _LLMAutoStub:
         # Simulate an auto topic transition tool call with no text deltas.
         return _ResponseStub("", [_ToolCallStub("interview_topic_over")])
 
-    def streamResponseOpenAI(self, messages, tools=None):
-        raise AssertionError("Auto streaming path should not use streamResponseOpenAI")
+    def streamResponse(self, messages, tools=None):
+        raise AssertionError("Auto streaming path should not use streamResponse")
 
 
 class _LLMPromptStub:
@@ -144,7 +144,7 @@ class _LLMPromptStub:
     def getResponse(self, messages, tools=None, tool_choice=None):
         raise AssertionError("Prompt streaming path should not use getResponse")
 
-    def streamResponseOpenAI(self, messages, tools=None):
+    def streamResponse(self, messages, tools=None):
         _LLMPromptStub.last_tools = tools
         yield ("delta", "Hello")
         yield ("delta", " world")

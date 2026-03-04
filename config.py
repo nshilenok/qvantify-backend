@@ -83,6 +83,7 @@ class AppConfig:
     openai_key: Optional[str] = field(default=None, repr=False)
     openai_panda_key: Optional[str] = field(default=None, repr=False)
     azure_key: Optional[str] = field(default=None, repr=False)
+    openrouter_key: Optional[str] = field(default=None, repr=False)
     panda_project: str = ""
     default_prompt: str = ""
 
@@ -122,6 +123,7 @@ class AppConfig:
             openai_key=credentials.openaiapi_key,
             openai_panda_key=credentials.openaiapi_panda_key,
             azure_key=credentials.azureopenai_key,
+            openrouter_key=credentials.openrouter_key,
             panda_project=credentials.panda_project,
             default_prompt=credentials.default_prompt,
             secret_key=_resolve_secret_key(),

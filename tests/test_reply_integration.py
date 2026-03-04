@@ -149,7 +149,7 @@ class _ConversationStub:
     def provideInitialResponse(self):
         return "Welcome to the next topic"
 
-    def buildModelMessages(self):
+    def buildModelMessages(self, with_tool_note=False):
         return [{"role": "system", "content": "CURRENT TOPIC: test"}]
 
     def retrieveTopicStatus(self):
@@ -196,7 +196,7 @@ class _LLMStub:
     def getResponse(self, messages, tools=None, tool_choice=None):
         return _ResponseStub("LLM response text")
 
-    def streamResponseOpenAI(self, messages, tools=None):
+    def streamResponse(self, messages, tools=None):
         yield ("delta", "Hello")
         yield ("delta", " world")
 

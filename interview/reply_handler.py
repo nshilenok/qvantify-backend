@@ -141,9 +141,10 @@ class ReplyHandler:
             self.chat.DB.store_message(g.projectId, g.uuid, base, cur,
                                        "system", system_prompt)
 
-        messages = self.chat.buildModelMessages()
+        is_auto = prompt_type == "auto"
+        messages = self.chat.buildModelMessages(with_tool_note=is_auto)
         llm = LLM()
-        tools = TOOL_SPEC if prompt_type == "auto" else None
+        tools = TOOL_SPEC if is_auto else None
 
         if prompt_type == "auto":
             # gpt-5 + tools streaming can stall; use non-stream for reliability.
@@ -154,7 +155,7 @@ class ReplyHandler:
         # Streaming path for "prompt" type
         full = ""
         tool_call_names: list = []
-        for kind, val in llm.streamResponseOpenAI(messages, tools=tools):
+        for kind, val in llm.streamResponse(messages, tools=tools):
             if kind == "delta":
                 full += val
                 yield ("delta", val)
