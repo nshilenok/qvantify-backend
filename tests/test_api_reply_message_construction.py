@@ -222,12 +222,13 @@ def test_provide_initial_response_on_topic_switch_includes_prior_history(app_ctx
     all_content = "\n".join(m["content"] for m in sent)
     assert "no" in all_content, "User's prior answer not present in LLM context on topic switch"
 
-    # Tools must be passed for auto topics
-    assert _LLMStub.last_tools is not None, "autoTopic.function tools not passed for auto topic in provideInitialResponse"
+    # Tools must NOT be passed for initial responses (opening question should never offer topic-done tool)
+    assert _LLMStub.last_tools is None, "provideInitialResponse must not pass tools — the opening question has nothing to mark done"
 
 
-def test_provide_initial_response_auto_passes_tools(app_ctx, monkeypatch):
-    """provideInitialResponse must pass autoTopic.function tools for auto topics."""
+def test_provide_initial_response_auto_no_tools(app_ctx, monkeypatch):
+    """provideInitialResponse must NOT pass tools, even for auto topics.
+    The opening question for a new topic should never offer interview_topic_over."""
     db = _DBStub([])
     g.projectId = "swipking3"
     g.uuid = "test-user"
@@ -236,7 +237,7 @@ def test_provide_initial_response_auto_passes_tools(app_ctx, monkeypatch):
     g.topicIsChanging = True
     g.db = db
 
-    _LLMStub.last_tools = None
+    _LLMStub.last_tools = "SENTINEL"
     monkeypatch.setattr(ci, "LLM", _LLMStub)
 
     chat = ci.conversation(_TopicStub(topic_type="auto"))
@@ -244,8 +245,7 @@ def test_provide_initial_response_auto_passes_tools(app_ctx, monkeypatch):
 
     chat.provideInitialResponse()
 
-    assert _LLMStub.last_tools is not None, "Tools should be passed for auto topics"
-    assert _LLMStub.last_tools[0]["function"]["name"] == "interview_topic_over"
+    assert _LLMStub.last_tools is None, "Tools should NOT be passed for initial responses"
 
 
 def test_provide_initial_response_prompt_no_tools(app_ctx, monkeypatch):

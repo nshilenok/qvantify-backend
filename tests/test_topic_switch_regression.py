@@ -254,12 +254,12 @@ def test_autotopic_switch_returns_none_on_last_topic(app_ctx):
 
 
 # ---------------------------------------------------------------------------
-# 3. provideInitialResponse must discard tool calls and retry
+# 3. provideInitialResponse must never pass tools (no tool calls possible)
 # ---------------------------------------------------------------------------
 
-class _LLMToolCallThenText:
-    """First call returns a tool call (model tries to skip); second call
-    returns a normal text response (forced retry without tools)."""
+class _LLMSingleCall:
+    """Records every call. provideInitialResponse should make exactly one
+    call with no tools."""
     call_count = 0
     calls = []
 
@@ -267,17 +267,14 @@ class _LLMToolCallThenText:
         pass
 
     def getResponse(self, messages, tools=None, tool_choice=None):
-        _LLMToolCallThenText.call_count += 1
-        _LLMToolCallThenText.calls.append({"tools": tools})
-        if _LLMToolCallThenText.call_count == 1:
-            return _ResponseStub(None, [_ToolCallStub()])
+        _LLMSingleCall.call_count += 1
+        _LLMSingleCall.calls.append({"tools": tools})
         return _ResponseStub("When you open SweepKing, what's your goal?")
 
 
-def test_initial_response_discards_tool_call_and_retries(app_ctx, monkeypatch):
-    """If the model calls interview_topic_over on the initial response,
-    provideInitialResponse must discard it and retry without tools,
-    returning a real question — never raw tool call text."""
+def test_initial_response_never_passes_tools(app_ctx, monkeypatch):
+    """provideInitialResponse must never pass tools to the LLM — the opening
+    question for a new topic has no reason to offer interview_topic_over."""
     db = _DBStub()
     g.projectId = "test_proj"
     g.uuid = "test-user"
@@ -286,46 +283,37 @@ def test_initial_response_discards_tool_call_and_retries(app_ctx, monkeypatch):
     g.topicIsChanging = True
     g.db = db
 
-    _LLMToolCallThenText.call_count = 0
-    _LLMToolCallThenText.calls = []
-    monkeypatch.setattr(ci, "LLM", _LLMToolCallThenText)
+    _LLMSingleCall.call_count = 0
+    _LLMSingleCall.calls = []
+    monkeypatch.setattr(ci, "LLM", _LLMSingleCall)
 
     chat = ci.conversation(_TopicStub(topic_type="auto"))
     chat.getDefaultPrompt = lambda topic_id=None: "DEFAULT PROMPT"
     result = chat.provideInitialResponse()
 
     assert result == "When you open SweepKing, what's your goal?"
-    assert _LLMToolCallThenText.call_count == 2, (
-        "Must call LLM twice: first with tools, second without after tool call detected"
+    assert _LLMSingleCall.call_count == 1, (
+        "Must call LLM exactly once (no tools, no retry)"
     )
-    assert _LLMToolCallThenText.calls[0]["tools"] is not None, (
-        "First call must include tools"
-    )
-    assert _LLMToolCallThenText.calls[1]["tools"] is None, (
-        "Retry call must NOT include tools"
+    assert _LLMSingleCall.calls[0]["tools"] is None, (
+        "provideInitialResponse must NOT pass tools"
     )
 
 
-class _LLMAlwaysToolCall:
-    """Always returns a tool call. If provideInitialResponse doesn't
-    discard it, this will either recurse infinitely or return garbage."""
-    call_count = 0
+def test_initial_response_single_llm_call(app_ctx, monkeypatch):
+    """provideInitialResponse must make exactly one LLM call. No retries,
+    no tool-call detection loop — tools are never passed."""
 
-    def __init__(self, *a, **kw):
-        pass
+    class _LLMCounter:
+        call_count = 0
+        def __init__(self, *a, **kw):
+            pass
+        def getResponse(self, messages, tools=None, tool_choice=None):
+            _LLMCounter.call_count += 1
+            if _LLMCounter.call_count > 10:
+                pytest.fail("Infinite loop detected: LLM called more than 10 times")
+            return _ResponseStub("Fallback question text")
 
-    def getResponse(self, messages, tools=None, tool_choice=None):
-        _LLMAlwaysToolCall.call_count += 1
-        if _LLMAlwaysToolCall.call_count > 10:
-            pytest.fail("Infinite loop detected: LLM called more than 10 times")
-        if tools:
-            return _ResponseStub(None, [_ToolCallStub()])
-        return _ResponseStub("Fallback question text")
-
-
-def test_initial_response_never_infinite_loops_on_persistent_tool_calls(app_ctx, monkeypatch):
-    """Even if the model keeps trying to call the tool, the retry (without
-    tools) must produce text and stop. No infinite loop."""
     db = _DBStub()
     g.projectId = "test_proj"
     g.uuid = "test-user"
@@ -334,32 +322,29 @@ def test_initial_response_never_infinite_loops_on_persistent_tool_calls(app_ctx,
     g.topicIsChanging = True
     g.db = db
 
-    _LLMAlwaysToolCall.call_count = 0
-    monkeypatch.setattr(ci, "LLM", _LLMAlwaysToolCall)
+    _LLMCounter.call_count = 0
+    monkeypatch.setattr(ci, "LLM", _LLMCounter)
 
     chat = ci.conversation(_TopicStub(topic_type="auto"))
     chat.getDefaultPrompt = lambda topic_id=None: "DEFAULT PROMPT"
     result = chat.provideInitialResponse()
 
     assert result == "Fallback question text"
-    assert _LLMAlwaysToolCall.call_count == 2, "Must call LLM exactly 2 times, not loop"
+    assert _LLMCounter.call_count == 1, "Must call LLM exactly 1 time, not loop"
 
 
-def test_initial_response_never_shows_raw_tool_call_text(app_ctx, monkeypatch):
-    """The assistant message stored and returned must never contain raw
-    tool call syntax like 'interview_topic_over({"status":"done"})'."""
+def test_initial_response_strips_raw_tool_call_text(app_ctx, monkeypatch):
+    """If the model emits raw interview_topic_over(...) text (even without
+    tools being passed), the safety-net strip must remove it."""
 
     class _LLMToolTextLeak:
         def __init__(self, *a, **kw):
             pass
 
         def getResponse(self, messages, tools=None, tool_choice=None):
-            if tools:
-                return _ResponseStub(
-                    'interview_topic_over({"status":"done"})',
-                    [_ToolCallStub()],
-                )
-            return _ResponseStub("What role do free sweep coins play for you?")
+            return _ResponseStub(
+                'interview_topic_over({"status":"done"}) What role do free sweep coins play for you?'
+            )
 
     db = _DBStub()
     g.projectId = "test_proj"

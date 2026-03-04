@@ -7,6 +7,14 @@ import autoTopic
 
 logger = logging.getLogger(__name__)
 
+_RAW_TOOL_CALL_RE = re.compile(r'interview_topic_over\s*\(\s*\{[^}]*\}\s*\)\s*', re.IGNORECASE)
+
+def _strip_raw_tool_text(text: str) -> str:
+	"""Remove raw interview_topic_over(...) text that the model sometimes emits as content."""
+	if not text:
+		return text
+	return _RAW_TOOL_CALL_RE.sub("", text).strip()
+
 class conversation():
 
 		def __init__(self,topic_instance):
@@ -270,36 +278,11 @@ class conversation():
 				except Exception:
 					pass
 				# endregion agent log
-				tools = autoTopic.function if promptType == "auto" else None
-				response = chatGPT.getResponse(history, tools)
+				response = chatGPT.getResponse(history)
 				msg = response.choices[0].message
-				if getattr(msg, "tool_calls", None) or (msg.content and "interview_topic_over" in msg.content):
-					response = chatGPT.getResponse(history)
-					msg = response.choices[0].message
-				self.DB.store_message("assistant", msg.content)
-				# region agent log
-				try:
-					import json as _json
-					from datetime import datetime as _dt
-					payload = {
-						"sessionId": "debug-session",
-						"runId": "run1",
-						"hypothesisId": "H3",
-						"location": "conversationInterface.py:provideInitialResponse",
-						"message": "LLM responded",
-						"data": {"response_len": len(msg.content or "")},
-						"timestamp": int(_dt.now().timestamp() * 1000),
-					}
-					with open(
-						"/Users/nikitashilenok/Documents/vibecoding projects/qvantify-fullstack/.cursor/debug.log",
-						"a",
-						encoding="utf-8",
-					) as f:
-						f.write(_json.dumps(payload) + "\n")
-				except Exception:
-					pass
-				# endregion agent log
-				return msg.content
+				content = _strip_raw_tool_text(msg.content or "")
+				self.DB.store_message("assistant", content)
+				return content
 
 			elif promptType == "single_question":
 				logger.debug('Initial Response (single question): %s', getattr(g, 'topicIsChanging', None))

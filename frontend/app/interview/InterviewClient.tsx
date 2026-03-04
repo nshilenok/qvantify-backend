@@ -70,7 +70,7 @@ export default function InterviewClient() {
     }
     return "";
   }, [messages]);
-  const displayPrompt = streamingResponse ?? currentPrompt;
+  const displayPrompt = streamingResponse || currentPrompt;
   const shimmerStyle = useMemo(
     () => ({
       backgroundImage:
