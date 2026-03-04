@@ -222,9 +222,11 @@ class conversation():
 				self._store("system", system_prompt)
 				response = chatGPT.getResponse(messages, topic_engine.TOOL_SPEC)
 				content = response.choices[0].message.content or ""
-				if topic_engine.handle_tool_call(response, topic_engine=self.topic_instance) or "interview_topic_over" in content:
-					if not topic_engine.handle_tool_call(response, topic_engine=self.topic_instance) and "interview_topic_over" in content:
-						topic_engine.force_switch_from_text(self.topic_instance)
+				switched = topic_engine.handle_tool_call(response, topic_engine=self.topic_instance)
+				if not switched and "interview_topic_over" in content:
+					topic_engine.force_switch_from_text(self.topic_instance)
+					switched = True
+				if switched:
 					logger.debug('===auto topic attempt 1: %s', self._current_topic)
 					answer = self.provideInitialResponse()
 					return answer
@@ -234,9 +236,11 @@ class conversation():
 			elif promptType == "auto" and not topic_changing:
 				response = chatGPT.getResponse(messages, topic_engine.TOOL_SPEC)
 				content = response.choices[0].message.content or ""
-				if topic_engine.handle_tool_call(response, topic_engine=self.topic_instance) or "interview_topic_over" in content:
-					if not topic_engine.handle_tool_call(response, topic_engine=self.topic_instance) and "interview_topic_over" in content:
-						topic_engine.force_switch_from_text(self.topic_instance)
+				switched = topic_engine.handle_tool_call(response, topic_engine=self.topic_instance)
+				if not switched and "interview_topic_over" in content:
+					topic_engine.force_switch_from_text(self.topic_instance)
+					switched = True
+				if switched:
 					logger.debug('===auto topic attempt 2: %s', self._current_topic)
 					answer = self.provideInitialResponse()
 					return answer
@@ -255,7 +259,34 @@ class conversation():
 					return self.retrieveTopic()
 				return history[-1]["content"]
 
-		def provideInitialResponse(self):
+		_TOPIC_SWITCH_INSTRUCTION = (
+			"\n\n[TOPIC SWITCH] The previous conversation topic has ended. "
+			"You MUST now ask the question from CURRENT TOPIC. "
+			"Do NOT continue the previous topic's conversation."
+		)
+
+		def _buildInitialMessages(self):
+			"""Build messages for provideInitialResponse.
+
+			Uses the current topic's system prompt (with a topic-transition
+			boundary appended) plus conversation history so the model asks
+			the new topic's question instead of continuing the old conversation.
+			"""
+			records = self.retrieveRecords()
+			system_prompt = (
+				self.retrieveTopic() + '\n \n' + self.getDefaultPrompt()
+				+ self._TOPIC_SWITCH_INSTRUCTION
+			)
+			history = []
+			for message in records:
+				role = message[1]
+				content = message[2]
+				if role not in ("user", "assistant"):
+					continue
+				history.append({"role": role, "content": content})
+			return [{"role": "system", "content": system_prompt}] + history
+
+		def provideInitialResponse(self, _depth=0):
 			cur = self._current_topic
 			promptType = self.topic_instance.getTopicType(cur)
 			chatGPT = LLM(db=self.DB, project_id=self.project)
@@ -265,10 +296,19 @@ class conversation():
 			if promptType == "prompt" or promptType == "auto":
 				logger.debug('Initial Response (prompt or auto): %s', self._is_topic_changing())
 				self._store("system", system_prompt)
-				history = self.buildModelMessages()
+				history = self._buildInitialMessages()
 				response = chatGPT.getResponse(history)
 				msg = response.choices[0].message
-				content = strip_raw_tool_text(msg.content or "")
+				raw = msg.content or ""
+				content = strip_raw_tool_text(raw)
+				if not content and raw and _depth < 3:
+					logger.warning(
+						'Initial response was raw tool text for topic %s, forcing switch (depth=%d)',
+						cur, _depth,
+					)
+					next_id = topic_engine.force_switch_from_text(self.topic_instance)
+					if next_id:
+						return self.provideInitialResponse(_depth=_depth + 1)
 				self._store("assistant", content)
 				return content
 

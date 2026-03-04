@@ -100,20 +100,35 @@ class LLM():
 	def _prepare_openai_chat_config(self):
 		config = dict(self.config)
 		model_name = str(config.get("model", ""))
-		if model_name.startswith("gpt-5"):
+
+		if not model_name.startswith("gpt-4.1"):
+			config.pop("temperature", None)
+			config.pop("top_p", None)
+
+		is_reasoning = (
+			model_name.startswith("gpt-5")
+			or model_name.startswith("o1")
+			or model_name.startswith("o3")
+			or model_name.startswith("o4")
+		)
+		if is_reasoning:
 			if "max_tokens" in config:
 				config["max_completion_tokens"] = config.pop("max_tokens")
 			reasoning_effort = str(config.get("reasoning_effort", "") or "").strip()
 			config["reasoning_effort"] = reasoning_effort or "low"
-			config.pop("temperature", None)
-			config.pop("top_p", None)
 		else:
 			config.pop("reasoning_effort", None)
 		return config
 
 	def _prepare_openai_messages(self, messages, config):
 		model_name = str(config.get("model", "") or "")
-		if not model_name.startswith("gpt-5"):
+		is_reasoning = (
+			model_name.startswith("gpt-5")
+			or model_name.startswith("o1")
+			or model_name.startswith("o3")
+			or model_name.startswith("o4")
+		)
+		if not is_reasoning:
 			return messages
 		prepared_messages = []
 		for idx, message in enumerate(messages or []):
