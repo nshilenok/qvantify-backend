@@ -747,3 +747,32 @@ Fix temperature 400 error on reasoning models (o1/o3/o4). Strip temperature/top_
 - None
 
 ### Status: PRODUCTION GREEN
+
+---
+
+## 2026-03-05 — openrouter-integration release (28a2765)
+
+### Changes
+- Added OpenRouter as alternative LLM provider (new `api='openrouter'` option)
+- Grok reasoning support via `extra_body` (effort level from DB `reasoning_effort` column)
+- OpenAI models routed through OpenRouter keep native `reasoning_effort` param
+- Unified `streamResponse()` dispatch replaces direct `streamResponseOpenAI` calls
+- Auto topics append "Don't mix calling tools and sending text" to system prompt
+- Test suite updated to match new dispatch method names
+
+### Timeline (CET)
+- 00:44 — Committed 28a2765 on staging
+- 00:45 — Preflight: 85/85 tests passed
+- 00:45 — Pushed staging (Railway auto-deploy)
+- 00:46 — Set OPENROUTER_API_KEY on Railway staging + production (--skip-deploys)
+- 00:47 — Staging health confirmed: version=28a2765
+- 00:48 — Staging smoke test: PASSED (swipking2 + Swipking3, stream + non-stream, 2 respondents each)
+- 00:49 — Promoted staging→main via `git push origin staging:main`
+- 00:50 — Production health confirmed: version=28a2765
+- 00:51 — Production smoke test: PASSED
+- 00:52 — Flipped project 0de9c996 to api=openrouter, model=x-ai/grok-4.1-fast, reasoning_effort=low
+
+### Issues found during promotion
+- None
+
+### Status: PRODUCTION GREEN
