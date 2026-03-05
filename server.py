@@ -541,6 +541,24 @@ def initialize_interview():
         logger.debug('Initializing interview for user: %s, project: %s', g.uuid, g.projectId)
         logger.debug('baseTopic: %s, topic: %s', getattr(g, 'baseTopic', None), getattr(g, 'topic', None))
         
+        existing = g.db.get_records(g.uuid, g.projectId)
+        last_assistant = None
+        for record in reversed(existing):
+            if record[1] == "assistant" and (record[2] or "").strip():
+                last_assistant = record[2]
+                break
+        if last_assistant is not None:
+            logger.info('Interview resume for %s — returning cached response', g.uuid)
+            chat = conversation(g.th)
+            status = chat.retrieveTopicStatus()
+            answers = chat.retrieveDefinedAnswers()
+            progress = g.th.getTopicProgress() if hasattr(g, "th") else {"current": 0, "total": 0, "ratio": 0}
+            resp = dict(response=last_assistant, status=status, answers=answers, progress=progress, version=APP_VERSION)
+            debug = _build_reply_debug(chat)
+            if debug:
+                resp["_debug"] = debug
+            return jsonify(resp)
+        
         chat = conversation(g.th)
         if first_answer and getattr(g, 'topicIsChanging', None) is not None:
             logger.info('First answer was provided in GET parameters: %s, for user: %s', first_answer, g.uuid)

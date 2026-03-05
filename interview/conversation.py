@@ -292,6 +292,16 @@ class conversation():
 			return [{"role": "system", "content": system_prompt}] + history
 
 		def provideInitialResponse(self, _depth=0):
+			if not self._is_topic_changing():
+				records = self.retrieveRecords()
+				for record in reversed(records):
+					if record[1] == "assistant" and (record[2] or "").strip():
+						logger.warning(
+							'provideInitialResponse called without topic change for user %s '
+							'— returning existing response', self.uuid,
+						)
+						return record[2]
+
 			cur = self._current_topic
 			promptType = self.topic_instance.getTopicType(cur)
 			chatGPT = LLM(db=self.DB, project_id=self.project)

@@ -428,13 +428,13 @@ export function AdminProjectPage() {
   });
 
   const updateProjectM = useMutation({
-    mutationFn: (patch: { voice_enabled: boolean }) => adminUpdateProject(projectId, patch),
+    mutationFn: (patch: Record<string, unknown>) => adminUpdateProject(projectId, patch),
     onMutate: async (patch) => {
       await queryClient.cancelQueries({ queryKey: ["admin", "project", projectId] });
       const previous = queryClient.getQueryData<AdminProjectResponse>(["admin", "project", projectId]);
       if (previous?.project) {
         queryClient.setQueryData<AdminProjectResponse>(["admin", "project", projectId], {
-          project: { ...previous.project, voice_enabled: patch.voice_enabled },
+          project: { ...previous.project, ...patch } as AdminProjectResponse["project"],
         });
       }
       return { previous };
@@ -448,6 +448,38 @@ export function AdminProjectPage() {
       await queryClient.invalidateQueries({ queryKey: ["admin", "project", projectId] });
     },
   });
+  const [editingField, setEditingField] = React.useState<string | null>(null);
+  const [editDraft, setEditDraft] = React.useState("");
+  const editTextareaRef = React.useRef<HTMLTextAreaElement>(null);
+
+  const startEditing = React.useCallback((key: string, currentValue: unknown) => {
+    setEditingField(key);
+    setEditDraft(currentValue === null || currentValue === undefined ? "" : String(currentValue));
+  }, []);
+
+  const cancelEditing = React.useCallback(() => {
+    setEditingField(null);
+    setEditDraft("");
+  }, []);
+
+  const saveField = React.useCallback(
+    (key: string, value: string) => {
+      const trimmed = value.trim();
+      const patch: Record<string, unknown> = { [key]: trimmed || null };
+      updateProjectM.mutate(patch);
+      setEditingField(null);
+      setEditDraft("");
+    },
+    [updateProjectM]
+  );
+
+  React.useEffect(() => {
+    if (editingField && editTextareaRef.current) {
+      const el = editTextareaRef.current;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    }
+  }, [editingField]);
 
   const selected = detailQ.data?.session;
   const records = detailQ.data?.records || [];
@@ -2040,25 +2072,87 @@ export function AdminProjectPage() {
                     <div className="mt-4 text-xs text-[var(--text-muted)]">No project settings available.</div>
                   )}
                   {projectDetails && (
-                    <div className="mt-4 space-y-3 max-h-[420px] overflow-y-auto pr-1">
+                    <div className="mt-4 space-y-3 max-h-[600px] overflow-y-auto pr-1">
                       {projectFields.map((field) => {
+                        const isReadOnly = field.key === "id";
                         if (field.type === "boolean") {
+                          const boolVal = field.invert ? !field.value : !!field.value;
                           const badge = formatBoolean(field.value as boolean | null | undefined, field.invert);
                           return (
-                            <div key={field.key} className="flex items-start justify-between gap-3">
+                            <div key={field.key} className="flex items-center justify-between gap-3">
                               <span className="text-xs text-[var(--text-muted)]">{field.label}</span>
-                              <span className={`rounded-full px-3 py-1 text-[11px] font-semibold ${badge.className}`}>
-                                {badge.label}
-                              </span>
+                              {isReadOnly ? (
+                                <span className={`rounded-full px-3 py-1 text-[11px] font-semibold ${badge.className}`}>
+                                  {badge.label}
+                                </span>
+                              ) : (
+                                <Switch
+                                  checked={boolVal}
+                                  onCheckedChange={(checked) => {
+                                    const dbVal = field.invert ? !checked : checked;
+                                    updateProjectM.mutate({ [field.key]: dbVal });
+                                  }}
+                                  disabled={updateProjectM.isPending}
+                                />
+                              )}
                             </div>
                           );
                         }
+
+                        const isEditing = editingField === field.key;
                         return (
                           <div key={field.key} className="flex flex-col gap-1">
-                            <span className="text-xs text-[var(--text-muted)]">{field.label}</span>
-                            <span className="text-xs text-[var(--text-secondary)] break-words">
-                              {formatValue(field.value)}
-                            </span>
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs text-[var(--text-muted)]">{field.label}</span>
+                              {!isReadOnly && !isEditing && (
+                                <button
+                                  type="button"
+                                  onClick={() => startEditing(field.key, field.value)}
+                                  className="text-[10px] font-semibold text-[var(--brand-primary)] hover:underline"
+                                >
+                                  Edit
+                                </button>
+                              )}
+                            </div>
+                            {isEditing ? (
+                              <div className="flex flex-col gap-2">
+                                <textarea
+                                  ref={editTextareaRef}
+                                  value={editDraft}
+                                  onChange={(e) => setEditDraft(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Escape") cancelEditing();
+                                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) saveField(field.key, editDraft);
+                                  }}
+                                  rows={Math.min(12, Math.max(2, editDraft.split("\n").length + 1))}
+                                  className="w-full rounded-lg border border-[var(--border-default)] bg-white px-3 py-2 text-xs text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)] resize-y"
+                                />
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => saveField(field.key, editDraft)}
+                                    disabled={updateProjectM.isPending}
+                                    className="rounded-full bg-[var(--brand-primary)] px-3 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
+                                  >
+                                    {updateProjectM.isPending ? "Saving..." : "Save"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={cancelEditing}
+                                    className="rounded-full border border-[var(--border-default)] bg-white px-3 py-1 text-[11px] font-semibold text-[var(--text-secondary)]"
+                                  >
+                                    Cancel
+                                  </button>
+                                  <span className="text-[10px] text-[var(--text-muted)]">
+                                    {"\u2318"}+Enter to save
+                                  </span>
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-[var(--text-secondary)] break-words whitespace-pre-wrap">
+                                {formatValue(field.value)}
+                              </span>
+                            )}
                           </div>
                         );
                       })}

@@ -133,7 +133,7 @@ export interface AdminTopicLogsResponse {
 }
 
 export type AdminProjectResponse = { project: AdminProjectDetail };
-export type AdminProjectUpdateResponse = { ok: true; project: { id: string; voice_enabled: boolean } };
+export type AdminProjectUpdateResponse = { ok: true; project: Record<string, unknown> & { id: string } };
 export type ShareLink = {
   id: string;
   label: string | null;
@@ -189,7 +189,7 @@ export async function adminGetProject(projectId: string) {
   return apiFetch<AdminProjectResponse>(`/api/projects/${encodeURIComponent(projectId)}`);
 }
 
-export async function adminUpdateProject(projectId: string, patch: { voice_enabled: boolean }) {
+export async function adminUpdateProject(projectId: string, patch: Record<string, unknown>) {
   return apiFetch<AdminProjectUpdateResponse>(`/api/projects/${encodeURIComponent(projectId)}`, {
     method: "PUT",
     body: JSON.stringify(patch),

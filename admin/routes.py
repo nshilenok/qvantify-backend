@@ -239,27 +239,75 @@ def admin_get_project(project_id):
     return jsonify({"project": row})
 
 
+_PROJECT_TEXT_FIELDS = frozenset({
+    "name", "logo", "colour",
+    "welcome_title", "welcome_message", "welcome_second_title", "welcome_second_message",
+    "success_title", "success_message", "abort_title", "abort_message",
+    "consent", "cta_next", "cta_reply", "cta_abort", "cta_restart",
+    "question_title", "answer_title", "answer_placeholder", "loading",
+    "email_title", "email_placeholder", "consent_link",
+    "model", "reasoning_effort", "api", "default_prompt",
+})
+_PROJECT_BOOL_FIELDS = frozenset({
+    "collect_email", "skip_welcome", "dark_mode", "inline_consent", "voice_enabled",
+})
+_PROJECT_FLOAT_FIELDS = frozenset({"temperature", "top_p"})
+_PROJECT_INT_FIELDS = frozenset({"max_tokens"})
+
+
+def _coerce_project_field(key, value):
+    if value is None:
+        return None
+    if key in _PROJECT_TEXT_FIELDS:
+        return str(value)
+    if key in _PROJECT_BOOL_FIELDS:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, int) and value in (0, 1):
+            return bool(value)
+        raise ValueError(f"{key} must be boolean")
+    if key in _PROJECT_FLOAT_FIELDS:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            raise ValueError(f"{key} must be a number")
+    if key in _PROJECT_INT_FIELDS:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            raise ValueError(f"{key} must be an integer")
+    raise ValueError(f"Unknown field: {key}")
+
+
 @admin_bp.route("/projects/<project_id>", methods=["PUT"])
 def admin_update_project(project_id):
     err = _require_local_admin()
     if err:
         return err
     payload = request.get_json() or {}
-    if "voice_enabled" not in payload:
-        return _json_error("Missing field: voice_enabled", 400)
-    raw_value = payload.get("voice_enabled")
-    if isinstance(raw_value, bool):
-        enabled = raw_value
-    elif isinstance(raw_value, int) and raw_value in (0, 1):
-        enabled = bool(raw_value)
-    else:
-        return _json_error("voice_enabled must be boolean", 400)
+    allowed = _PROJECT_TEXT_FIELDS | _PROJECT_BOOL_FIELDS | _PROJECT_FLOAT_FIELDS | _PROJECT_INT_FIELDS
+    sets = []
+    params = []
+    updated = {}
+    for key, value in payload.items():
+        if key not in allowed:
+            continue
+        try:
+            coerced = _coerce_project_field(key, value)
+        except ValueError as ve:
+            return _json_error(str(ve), 400)
+        sets.append(f"{key}=%s")
+        params.append(coerced)
+        updated[key] = coerced
+    if not sets:
+        return _json_error("No valid fields to update", 400)
     try:
-        g.db.query_database_insert("UPDATE projects SET voice_enabled=%s WHERE id=%s", (enabled, project_id))
+        q = f"UPDATE projects SET {', '.join(sets)} WHERE id=%s"
+        g.db.query_database_insert(q, tuple(params) + (project_id,))
     except Exception as exc:
-        logger.exception("Failed to update voice_enabled for project %s: %s", project_id, str(exc))
+        logger.exception("Failed to update project %s: %s", project_id, str(exc))
         return _json_error("Failed to update project settings", 500)
-    return jsonify({"ok": True, "project": {"id": project_id, "voice_enabled": enabled}})
+    return jsonify({"ok": True, "project": {"id": project_id, **updated}})
 
 
 class AdminUsageStats:
