@@ -776,3 +776,31 @@ Fix temperature 400 error on reasoning models (o1/o3/o4). Strip temperature/top_
 - None
 
 ### Status: PRODUCTION GREEN
+
+---
+
+## 2026-03-05 — idempotent-init release (784313e / fabd41b)
+
+### Summary
+Fix: duplicate GET /api/interview/ (page refresh) no longer causes the LLM to answer its own question. Two-layer idempotency guard on interview initialization. Also: generalize admin project update endpoint.
+
+### Timeline (CET)
+- 08:41 — Commit 784313e on staging
+- 08:42 — Preflight: import check PASS, branch safety PASS, 93 pytest PASS. Playwright skipped (port conflict, known issue)
+- 08:42 — git push origin staging (Railway auto-deploy)
+- 08:42 — Checkpoint created: checkpoint-idempotent-init
+- 08:43 — vercel deploy preview → qvantify-frontend-7sczitovp
+- 08:43 — vercel alias staging.app.qvantify.com → new deploy
+- 08:44 — Domain aliases verified. Backend health: version=784313e. Frontend: 200
+- 08:44 — Staging smoke test: PASSED (4/4 sessions, both stream and non-stream)
+- 08:45 — Release safety check: PASSED
+- 08:45 — promote_frontend_from_staging --apply → app.qvantify.com updated
+- 08:45 — git push origin staging:main (Railway production auto-deploy)
+- 08:46 — Production health: version=fabd41b. Domain aliases verified. Frontend: 200
+- 08:47 — Production smoke test: PASSED (4/4 sessions)
+
+### Issues found during promotion
+- Git author email (known): amended to nshilenok@gmail.com, force-pushed
+- Dirty tree (checkpoint file): committed before safety check
+
+### Status: PRODUCTION GREEN
