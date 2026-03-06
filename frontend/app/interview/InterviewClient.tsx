@@ -229,6 +229,7 @@ export default function InterviewClient() {
               email,
               consent,
             });
+            setUuid(respondent.uuid);
             setResumeUuid(respondent.uuid);
             persistSession(respondent.uuid);
             const initial = await initInterview({ projectId, uuid: respondent.uuid });
@@ -263,6 +264,7 @@ export default function InterviewClient() {
   const handleSend = useCallback(
     async (message: string, meta?: { voiceInput: boolean; audioTokens: number }) => {
       if (!projectId || !uuid) return;
+      setError(null);
       setIsSending(true);
       setStreamingActive(true);
       setStreamingStarted(false);
@@ -307,6 +309,7 @@ export default function InterviewClient() {
         setIsSending(false);
         setStreamingActive(false);
         setStreamingStarted(false);
+        setStreamingResponse(null);
       }
     },
     [projectId, uuid]
@@ -422,6 +425,10 @@ export default function InterviewClient() {
               <p className="text-sm leading-6 text-slate-900">{displayPrompt}</p>
             )}
           </div>
+
+          {error && (
+            <p role="alert" className="text-xs text-red-500">{error}</p>
+          )}
 
           <InputArea
             project={project}
