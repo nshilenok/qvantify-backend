@@ -14,7 +14,7 @@ from flask import g
 from .conversation import conversation
 from .topic_engine import TOOL_SPEC, handle_tool_call, strip_raw_tool_text
 from .types import ReplyInput, ReplyResult
-from llmInterface import LLM
+from llmInterface import LLM, strip_reasoning_leak
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +143,7 @@ class ReplyHandler:
 
         is_auto = prompt_type == "auto"
         messages = self.chat.buildModelMessages(with_tool_note=is_auto)
-        llm = LLM()
+        llm = LLM(allow_responses=True)
         tools = TOOL_SPEC if is_auto else None
 
         if prompt_type == "auto":
@@ -166,6 +166,8 @@ class ReplyHandler:
                         tool_call_names.append(fn)
                 except Exception:
                     pass
+
+        full = strip_reasoning_leak(full)
 
         base = getattr(g, 'baseTopic', getattr(g, 'topic', None))
         cur = getattr(g, 'topic', None)
@@ -199,7 +201,7 @@ class ReplyHandler:
         """Handle auto-topic type via non-streaming LLM call."""
         response = llm.getResponse(messages, tools=tools)
         assistant_msg = response.choices[0].message
-        full = assistant_msg.content or ""
+        full = strip_reasoning_leak(assistant_msg.content or "")
 
         tool_call_names = self._extract_tool_call_names(assistant_msg, full)
 

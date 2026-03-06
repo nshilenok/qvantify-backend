@@ -144,7 +144,7 @@ class AnalysisService:
                     },
                 }
             ]
-            llm = LLM(db=self.db, project_id=self.project_id)
+            llm = LLM(db=self.db, project_id=self.project_id, allow_responses=True)
             tool_choice = {"type": "function", "function": {"name": "session_analysis"}}
             resp = llm.getResponse(self._build_prompt(records), tools=tools, tool_choice=tool_choice)
             msg = resp.choices[0].message

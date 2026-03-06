@@ -4,7 +4,7 @@ Builds prompts, manages message history, orchestrates LLM calls for the
 interview chat loop.
 """
 
-from llmInterface import LLM
+from llmInterface import LLM, strip_reasoning_leak
 import logging
 import re
 import credentials
@@ -196,7 +196,7 @@ class conversation():
 			cur = self._current_topic
 			promptType = self.topic_instance.getTopicType(cur)
 			logger.debug('===Getting prompt type (%s) for topic: %s', promptType, cur)
-			chatGPT = LLM(db=self.DB, project_id=self.project)
+			chatGPT = LLM(db=self.DB, project_id=self.project, allow_responses=True)
 
 			if user_input is not None and self.retrieveTopicStatus() == "open":
 				self._store("user", user_input)
@@ -304,7 +304,7 @@ class conversation():
 
 			cur = self._current_topic
 			promptType = self.topic_instance.getTopicType(cur)
-			chatGPT = LLM(db=self.DB, project_id=self.project)
+			chatGPT = LLM(db=self.DB, project_id=self.project, allow_responses=True)
 
 			system_prompt = self.retrieveTopic() + '\n \n' + self.getDefaultPrompt()
 
@@ -314,7 +314,7 @@ class conversation():
 				history = self._buildInitialMessages()
 				response = chatGPT.getResponse(history)
 				msg = response.choices[0].message
-				raw = msg.content or ""
+				raw = strip_reasoning_leak(msg.content or "")
 				content = strip_raw_tool_text(raw)
 				if not content and raw and _depth < 3:
 					logger.warning(
