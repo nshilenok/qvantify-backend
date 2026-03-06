@@ -546,12 +546,26 @@ class LLM():
 		else:
 			yield from self.streamResponseOpenAI(messages, tools)
 
+	def _should_use_responses(self):
+		"""Decide whether to use the Responses API for this request.
+
+		Returns True when the DB flag says 'responses' OR when the model
+		requires it (gpt-5.4+ mandates /v1/responses for function tools
+		with reasoning_effort).
+		"""
+		if self._openai_transport == "responses":
+			return True
+		model = str(self.config.get("model", ""))
+		if model.startswith("gpt-5.") and model != "gpt-5.2":
+			return True
+		return False
+
 	def getResponse(self,messages,tools=None,tool_choice=None):
 		uid = getattr(g, "uuid", None) if has_request_context() else None
 		logger.info('USER %s SENDING THIS TO GPT: %s', uid, messages)
 		try:
 			if self.api == "openai":
-				if self._allow_responses and self._openai_transport == "responses":
+				if self._allow_responses and self._should_use_responses():
 					return self.getResponseOpenAIResponses(messages, tools, tool_choice)
 				return self.getResponseOpenAI(messages,tools,tool_choice)
 			if self.api == "azure":
