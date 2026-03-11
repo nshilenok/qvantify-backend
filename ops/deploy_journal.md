@@ -804,3 +804,54 @@ Fix: duplicate GET /api/interview/ (page refresh) no longer causes the LLM to an
 - Dirty tree (checkpoint file): committed before safety check
 
 ### Status: PRODUCTION GREEN
+
+---
+
+## 2026-03-06 — responses-adapter + gpt-5.4 upgrade (6a0985c → b1863e2)
+
+### Summary
+Add OpenAI Responses API adapter (`_ResponsesCompat`), strip reasoning leaks from content (`strip_reasoning_leak`), auto-route gpt-5.4+ to Responses API. Upgraded all 8 projects from mixed models (gpt-5.2 / grok-4.1-fast) to gpt-5.4 / medium / openai / responses.
+
+### Changes deployed
+- `llmInterface.py` — Responses API adapter, `allow_responses` flag, `strip_reasoning_leak`, `_clean_reasoning_leak` for OpenRouter/Grok, `_should_use_responses()` auto-detection for gpt-5.4+
+- `interview/conversation.py` — enable Responses transport, apply `strip_reasoning_leak`
+- `interview/reply_handler.py` — enable Responses transport, apply `strip_reasoning_leak`
+- `interview/analysis.py` — enable Responses transport
+- `tests/test_responses_adapter.py` — unit tests for adapter, transport routing, tool translation (new file)
+
+### Timeline (CET)
+- 10:18 — Committed 6a0985c on staging (5 files, 783 insertions)
+- 10:18 — Preflight: import check PASS, branch safety PASS, 116 pytest PASS. Playwright skipped (port 4173 conflict, known issue)
+- 10:19 — git push origin staging (Railway auto-deploy triggered)
+- 10:19 — Checkpoint created: checkpoint-responses-adapter
+- 10:19 — vercel link + deploy preview → qvantify-frontend-f9if6i8r9
+- 10:20 — vercel alias staging.app.qvantify.com → new deploy
+- 10:20 — Domain aliases verified. Frontend: 200
+- 10:20 — **Railway staging NOT deploying** — health still showing version=87c9424 after 6+ minutes
+- 10:27 — Empty commit ca589d3 pushed to staging to re-trigger Railway deploy
+- 10:28 — Railway staging confirmed: version=ca589d3
+- 10:28 — Staging smoke test: PASSED (4/4 sessions, stream + non-stream)
+- 10:30 — User confirmed promotion
+- 10:30 — promote_frontend_from_staging --apply → app.qvantify.com updated
+- 10:30 — git push origin staging:main
+- 10:32 — Railway production confirmed: version=ca589d3
+- 10:32 — Production domain aliases verified. Frontend: 200
+- 10:32 — Production smoke test: PASSED (4/4 sessions)
+- 10:33 — Hard verification gate: HEAD=ca589d3 matches BE health AND FE proxy. PASSED
+- 10:33 — SQL: UPDATE all 8 projects → model=gpt-5.4, reasoning_effort=medium, api=openai
+- 10:34 — **Production smoke test FAILED** — gpt-5.4 returns 400: "Function tools with reasoning_effort are not supported for gpt-5.4 in /v1/chat/completions. Please use /v1/responses instead."
+- 10:35 — Root cause: projects need `openai_transport='responses'` AND code needs auto-detection for gpt-5.4+
+- 10:35 — Code fix: added `_should_use_responses()` method to auto-route gpt-5.4+ to Responses API
+- 10:35 — SQL: UPDATE all 8 projects → openai_transport=responses
+- 10:36 — Committed 054b323, pushed to staging + main
+- 10:37 — **Railway NOT deploying again** — health still showing ca589d3
+- 10:38 — Empty commit b1863e2 pushed to staging + main
+- 10:40 — Railway production confirmed: version=b1863e2
+- 10:40 — **Final smoke test: PASSED** (4/4 sessions, gpt-5.4 / medium / responses)
+
+### Issues found during promotion
+1. **Railway silent deploy failure (x2)**: Railway did not redeploy after normal `git push`. Required empty commits to re-trigger. Happened both for staging and production pushes.
+2. **gpt-5.4 requires Responses API**: OpenAI gpt-5.4 rejects `/v1/chat/completions` with function tools + reasoning_effort. Required both code fix (auto-detection) and DB update (openai_transport=responses).
+3. **Deploy journal not written during cycle**: Fixed post-hoc in this entry.
+
+### Status: PRODUCTION GREEN

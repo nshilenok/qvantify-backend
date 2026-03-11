@@ -1,0 +1,13 @@
+---
+description: After any code fix, verify the local dev/preview server is running and accessible before declaring done.
+alwaysApply: true
+---
+
+# Verify Local Deployment After Fixes
+
+After completing any code change or fix:
+
+1. **Check that the local server is running** — look for an active dev (`npm run dev`) or preview (`npm run preview`) process in the terminal.
+2. **If the server is not running, start it** and wait until it is ready before moving on.
+3. **Confirm the relevant page loads** by fetching or curling the local URL (e.g. `http://127.0.0.1:4173/…` or `http://localhost:5173/…`) and verifying a non-error response.
+4. **Never tell the user a fix is complete while the local server is down.** The user needs a live local deployment to verify the work.

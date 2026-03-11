@@ -65,6 +65,26 @@ lsof -ti :4173 | xargs kill -9 2>/dev/null
 ### Git worktree blocks `git checkout main`
 The `main` branch is checked out in a git worktree, so `git checkout main && git merge staging` will fail. Use `git push origin staging:main` instead to update main remotely.
 
+### Railway silent deploy failure
+Railway may silently fail to redeploy after a normal `git push`. The health endpoint keeps returning the old commit hash indefinitely. This has occurred multiple times (2026-03-06). If the health version hasn't updated within 90 seconds of a push, push an empty commit to re-trigger:
+```bash
+git commit --allow-empty --author="nikitashilenok <nshilenok@gmail.com>" -m "Trigger Railway redeploy"
+git push origin staging        # or staging:main for production
+```
+Always poll health after push — never assume Railway deployed.
+
+### gpt-5.4+ requires Responses API
+OpenAI gpt-5.4 and later models reject `/v1/chat/completions` when function tools are combined with `reasoning_effort`. The error is:
+```
+Function tools with reasoning_effort are not supported for gpt-5.4 in /v1/chat/completions. Please use /v1/responses instead.
+```
+When switching models to gpt-5.4+, ensure:
+1. `api = 'openai'` (not openrouter)
+2. `openai_transport = 'responses'` in the projects table
+3. Code callers pass `allow_responses=True` to the `LLM()` constructor
+
+The code auto-detects gpt-5.4+ via `_should_use_responses()`, but the DB flag is the primary gate.
+
 ### SSO protection on staging
 Vercel SSO protection may block unauthenticated access to staging. If staging returns a login wall instead of the app, disable SSO via the Vercel API:
 ```bash
@@ -102,6 +122,13 @@ git push origin staging
 ```
 If the commit was amended (e.g. author fix), use `--force`.
 
+**After pushing, poll health until the version updates** (Railway may silently fail to deploy — see Known Issues):
+```bash
+# Poll every 30s; if still stale after 90s, push an empty commit
+curl -s https://qvantify-staging.up.railway.app/api/health
+```
+Expected: `version` field matches the short SHA of the pushed commit. If still stale after 90 seconds, push an empty commit to re-trigger (see "Railway silent deploy failure" above).
+
 ### 2) Create rollback checkpoint
 
 ```bash
@@ -138,7 +165,7 @@ Runs 2 respondents per project, tests BOTH non-streaming and streaming code path
 ```bash
 ./scripts/staging_smoke_test.sh https://qvantify-staging.up.railway.app
 ```
-This tests `swipking2` (gpt-5.2) and Swipking3 (gpt-4.1). **Do NOT proceed to promotion if this fails.**
+This tests `swipking2` and `Swipking3` (both gpt-5.4 / medium as of 2026-03-06). **Do NOT proceed to promotion if this fails.**
 
 ### 5) Browser verification (supplementary)
 
@@ -202,7 +229,7 @@ Expected:
 - `/api/health` → 200 with `x-qvantify-proxy-base: https://qvantify.up.railway.app` and `version` matching the promoted commit.
 - `/interview?...` → 200.
 
-Note: Railway production may take 30-60 seconds to deploy after push. If `version` field is missing from health response, wait and retry — old code didn't have the version field.
+Note: Railway production may take 30-60 seconds to deploy after push. If the version hasn't updated after 90 seconds, push an empty commit to re-trigger (see "Railway silent deploy failure" in Known Issues).
 
 ### 9b) Production smoke test (MANDATORY — rollback trigger)
 
