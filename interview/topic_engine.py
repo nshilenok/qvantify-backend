@@ -220,6 +220,9 @@ class TopicEngine:
             return True
 
         if self.getTopicType(self.topic) == "auto":
+            if self.getSwitchStrategy() == "count":
+                if response_count >= topic_response_treshold:
+                    return True
             return None
 
         elif self.getSwitchStrategy() == "time":
