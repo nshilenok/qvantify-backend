@@ -57,6 +57,7 @@ const proxyRequest = async (request: Request, context: RouteContext) => {
 
   const headers = new Headers(request.headers);
   headers.delete("host");
+  headers.delete("accept-encoding");
   headers.set("x-qvantify-proxy", "nextjs");
 
   const init: RequestInit = {
@@ -73,6 +74,7 @@ const proxyRequest = async (request: Request, context: RouteContext) => {
   const responseHeaders = new Headers(upstream.headers);
   responseHeaders.set("x-qvantify-proxy-base", resolveBaseUrl());
   responseHeaders.delete("content-length");
+  responseHeaders.delete("content-encoding");
 
   const requestPath = new URL(request.url).pathname;
   const isProjectConfig =

@@ -28,7 +28,7 @@ export interface ProjectBase {
   voice_enabled?: boolean | null;
 }
 
-export interface ProjectConfig extends ProjectBase {}
+export type ProjectConfig = ProjectBase;
 
 export interface ProgressState {
   current: number;

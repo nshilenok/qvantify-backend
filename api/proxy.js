@@ -2,6 +2,7 @@ const { Readable } = require("node:stream");
 
 const HOP_BY_HOP_HEADERS = new Set([
   "connection",
+  "accept-encoding",
   "content-length",
   "host",
   "keep-alive",
@@ -44,7 +45,13 @@ function applyResponseHeaders(res, response) {
   }
 
   response.headers.forEach((value, key) => {
-    if (key.toLowerCase() === "set-cookie") {
+    const lowerKey = key.toLowerCase();
+    if (
+      lowerKey === "set-cookie" ||
+      lowerKey === "content-encoding" ||
+      lowerKey === "content-length" ||
+      lowerKey === "transfer-encoding"
+    ) {
       return;
     }
     res.setHeader(key, value);
